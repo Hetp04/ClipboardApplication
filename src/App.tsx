@@ -1,5 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import HomePage from './components/HomePage';
+import GuestPage from './components/GuestPage';
+import MainScreen from './components/MainScreen';
 import SplashScreen from './components/SplashScreen';
 import './App.css';
 
@@ -19,9 +22,15 @@ function App() {
 
   return (
     <div className="app">
-      {/* Always render HomePage, but initially hidden */}
-      <div className={`home-container ${appReady ? 'visible' : 'hidden'}`}>
-        <HomePage />
+      {/* Always render content, but initially hidden */}
+      <div className={`content-container ${appReady ? 'visible' : 'hidden'}`}>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/guest" element={<MainScreen />} />
+            <Route path="/main" element={<MainScreen />} />
+          </Routes>
+        </BrowserRouter>
       </div>
       
       {showSplash && <SplashScreen onFinish={handleSplashFinish} />}

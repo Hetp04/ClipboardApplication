@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import '../styles/HomePage.css';
 import LoginForm from './LoginForm';
 import SignupForm from './SignupForm';
@@ -142,7 +143,7 @@ const HomePage = () => {
           </div>
           
           <div className="guest-link">
-            <a href="#" className="stay-logged-out-button">Stay as logged out</a>
+            <Link to="/guest" className="stay-logged-out-button">Stay as logged out</Link>
           </div>
         </div>
       </div>

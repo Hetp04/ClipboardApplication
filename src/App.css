@@ -65,7 +65,8 @@ body.dark {
 }
 
 /* New styles for smooth transition */
-.home-container {
+.home-container,
+.content-container {
   position: absolute;
   top: 0;
   left: 0;
@@ -75,11 +76,13 @@ body.dark {
   transition: opacity 0.5s ease-in;
 }
 
-.home-container.visible {
+.home-container.visible,
+.content-container.visible {
   opacity: 1;
 }
 
-.home-container.hidden {
+.home-container.hidden,
+.content-container.hidden {
   opacity: 0;
 }
 
