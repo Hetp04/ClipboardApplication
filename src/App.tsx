@@ -4,11 +4,15 @@ import HomePage from './components/HomePage';
 import GuestPage from './components/GuestPage';
 import MainScreen from './components/MainScreen';
 import SplashScreen from './components/SplashScreen';
+import { useClipboardDebug } from './hooks/useClipboardDebug';
 import './App.css';
 
 function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [appReady, setAppReady] = useState(false);
+
+  // Initialize clipboard monitoring
+  useClipboardDebug();
 
   const handleSplashFinish = () => {
     // Keep splash visible but indicate app is ready to load content in background
