@@ -47,6 +47,10 @@
 }
 
 .empty-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -54,11 +58,11 @@
   max-width: 560px; /* Increase max-width */
   width: 100%; /* Allow it to take up width */
   padding: 60px 40px; /* Increase padding */
-  position: relative;
-  z-index: 1;
-  background-color: transparent;
+  z-index: 10;
+  background-color: #f8fafc; /* Soft white background */
   border-radius: 12px; /* Add slight radius */
-  border: 2px dashed #D1D5DB; /* Use dashed border (Medium-Light Gray) */
+  border: 2px dashed #D1D5DB; /* Dashed border (Medium-Light Gray) */
+  margin: 0;
 }
 
 .icon-container {
@@ -120,12 +124,12 @@
 .demo-mode-container {
   width: 100%;
   height: 100%;
-  max-width: 800px;
+  max-width: 1180px; /* Slightly reduced from 1240px */
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 20px; /* Match the gap used in the grid for consistency */
   overflow-y: auto;
-  padding: 20px 10px 40px 10px;
+  padding: 20px 28px; /* Slightly reduced padding */
   animation: fadeIn 0.5s ease;
 }
 
@@ -139,7 +143,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 0; /* Remove bottom margin to use the parent's gap */
   padding-bottom: 20px;
   border-bottom: 1px solid #e5e7eb;
 }
@@ -160,14 +164,30 @@
   margin: 0;
 }
 
-/* Snippets Container */
+/* Snippets Container - Using column layout instead of grid */
 .snippets-container {
   display: flex;
-  flex-direction: column;
-  gap: 16px;
-  overflow-y: auto;
+  gap: 28px; /* Slightly reduced from 30px */
   margin-bottom: 20px;
-  padding-right: 8px; /* Room for scrollbar */
+  width: 100%;
+  overflow: visible;
+}
+
+.snippets-column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 22px; /* Slightly reduced from 24px */
+  max-width: calc(50% - 14px); /* Adjusted based on new gap */
+  width: 100%;
+}
+
+/* Snippet wrapper */
+.snippet-wrapper {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* Snippet Card Base Styles */
@@ -175,13 +195,16 @@
   background-color: white;
   border-radius: 10px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
-  padding: 16px;
+  padding: 19px; /* Slightly reduced from 20px */
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 13px; /* Slightly reduced from 14px */
   transition: all 0.2s ease;
   border: 1px solid #e5e7eb;
   position: relative;
+  height: fit-content; /* Allow cards to size to their content */
+  width: 100%; /* Take full width of grid cell */
+  margin: 0; /* Ensure no unexpected margins */
 }
 
 .snippet-card:hover {
@@ -247,6 +270,9 @@
 .snippet-content {
   width: 100%;
   line-height: 1.5;
+  max-height: none; /* Remove any max-height constraints */
+  overflow: visible; /* Allow content to determine the height */
+  padding: 3px; /* Slightly increased padding */
 }
 
 .snippet-content.code {
@@ -259,6 +285,14 @@
   white-space: pre-wrap;
   overflow-x: auto;
   border: 1px solid #e2e8f0;
+  height: auto; /* Allow code blocks to expand */
+}
+
+/* Ensure pre elements don't add extra unnecessary height */
+.snippet-content pre {
+  margin: 0;
+  overflow: visible;
+  height: auto;
 }
 
 .snippet-content.tweet {
@@ -277,6 +311,21 @@
 .snippet-content.text {
   font-size: 0.95rem;
   color: #1f2937;
+}
+
+/* Add styling for multi-line text snippets */
+.snippet-content.text-multiline {
+  white-space: pre-wrap;
+  overflow-x: auto;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  background-color: #f8fafc;
+  border-radius: 6px;
+  padding: 12px;
+  color: #334155;
+  margin: 0;
+  border: 1px solid #e2e8f0;
 }
 
 .snippet-content.link {
@@ -417,7 +466,7 @@
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
-  margin-top: 10px;
+  margin-top: 0; /* Use the parent's gap instead */
 }
 
 .exit-demo-btn:hover {
@@ -451,18 +500,65 @@
 }
 
 /* Responsive adjustments */
-@media (max-width: 768px) {
+@media (max-width: 1400px) {
+  .demo-mode-container {
+    max-width: 95%;
+    padding: 20px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .demo-mode-container {
+    max-width: 95%;
+  }
+  
+  .snippet-card {
+    padding: 18px;
+    gap: 12px;
+  }
+}
+
+@media (max-width: 900px) {
   .demo-mode-container {
     max-width: 100%;
-    padding: 16px 10px 32px 10px;
+    padding: 16px 16px 32px 16px;
   }
   
   .snippets-container {
-    gap: 12px;
+    flex-direction: column; /* Stack columns on smaller screens */
+    gap: 20px; /* Maintain decent spacing between stacked cards */
+  }
+  
+  .snippets-column {
+    width: 100%;
+    max-width: 100%; /* Full width on smaller screens */
+  }
+  
+  .snippet-card {
+    padding: 16px;
+    margin: 0; /* Ensure no extra margins are added */
+  }
+}
+
+/* Mobile-specific adjustments */
+@media (max-width: 600px) {
+  .snippets-container {
+    padding-right: 0;
+    gap: 16px; /* Slightly reduced but still consistent spacing */
+  }
+  
+  .demo-mode-container {
+    padding: 12px 12px 24px 12px;
   }
   
   .snippet-card {
     padding: 12px;
+    margin: 0; /* Ensure no extra margins are added */
+  }
+  
+  .empty-state {
+    padding: 40px 20px;
+    max-width: 90%;
   }
 }
 
@@ -475,4 +571,166 @@
   .snippet-time {
     align-self: flex-start;
   }
+}
+
+/* Notes Styling */
+.notes-section {
+  width: 100%;
+  margin: 10px 0;
+  padding: 12px;
+  background-color: #f9fafb;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+
+.note-input-container {
+  display: flex;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.note-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px 0 0 4px;
+  font-size: 0.9rem;
+  color: #4b5563;
+  background-color: white;
+}
+
+.note-input:focus {
+  outline: none;
+  border-color: #6b7280;
+  box-shadow: 0 0 0 1px rgba(107, 114, 128, 0.2);
+}
+
+.add-note-btn {
+  background-color: #4f46e5;
+  color: white;
+  border: none;
+  border-radius: 0 4px 4px 0;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.add-note-btn:hover {
+  background-color: #4338ca;
+}
+
+.add-note-btn:disabled {
+  background-color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.notes-list {
+  margin: 0;
+  padding: 0 0 0 20px;
+  list-style-type: disc;
+}
+
+.note-item {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: #4b5563;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative; /* For positioning */
+}
+
+/* Style the bullet point */
+.note-item::before {
+  content: "•";
+  position: absolute;
+  left: -15px;
+  top: 0;
+  color: #6b7280;
+  font-size: 1.2em;
+  line-height: 1;
+}
+
+.note-text {
+  flex: 1;
+}
+
+.remove-note-btn {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 3px;
+  margin-left: 8px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.remove-note-btn:hover {
+  background-color: #f3f4f6;
+  color: #ef4444;
+  opacity: 1;
+}
+
+/* Make note button appear active when editing */
+.notes-btn.active {
+  color: #4f46e5;
+  background-color: #eff6ff;
+}
+
+/* Note count badge */
+.note-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background-color: #4f46e5;
+  color: white;
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Update existing button styles */
+.notes-btn {
+  position: relative;
+}
+
+.delete-btn {
+  background: none;
+  border: none;
+  color: #9CA3AF;
+  cursor: pointer;
+  padding: 4px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.delete-btn:hover {
+  color: #EF4444;
+  transform: translateY(-1px);
+}
+
+.delete-btn:active {
+  transform: translateY(0);
+}
+
+.delete-btn svg {
+  width: 16px;
+  height: 16px;
+  display: block;
 } 
+

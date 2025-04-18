@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { listen } from "@tauri-apps/api/event";
+import Groq from "groq-sdk"; // Import Groq if you have the SDK, otherwise use fetch
 import '../styles/MainScreen.css';
+import hljs from 'highlight.js/lib/common'; // Import highlight.js
 
 // Define types for snippets
 interface BaseSnippet {
@@ -10,6 +13,7 @@ interface BaseSnippet {
   source: string;
   timestamp: string;
   tags: string[];
+  notes?: string[]; // Array of strings for bullet points
 }
 
 interface CodeSnippet extends BaseSnippet {
@@ -108,9 +112,237 @@ const demoSnippets: Snippet[] = [
   }
 ];
 
+// Helper function to format timestamp
+const formatTimestamp = (date: Date): string => {
+  return date.toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }) + ' · ' + date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+};
+
+// Improved heuristic check for code patterns with more robust detection
+const looksLikeCode = (text: string): boolean => {
+  // Skip very short text (likely not code)
+  if (text.length < 10) return false;
+
+  // Negative patterns (strong indicators of natural language)
+  const naturalLanguagePatterns = [
+    /\b(the|a|an|and|or|but|because|therefore|however|although|nevertheless)\b/gi, // Common English conjunctions/articles
+    /\?{1,3}\s*$|\!{1,3}\s*$/m, // Question/exclamation marks at end of lines
+    /\b(I|we|you|he|she|they)\s+(am|are|is|was|were|have|has|had)\b/i, // Common pronoun+verb combinations
+    /\b(please|thanks|thank you|sincerely|regards)\b/i, // Conversational/email phrases
+    /\b(what|when|where|why|how)\s+(is|are|do|does)\b/i, // Question structures
+  ];
+  
+  // Count natural language indicators
+  let naturalLanguageScore = 0;
+  naturalLanguagePatterns.forEach(pattern => {
+    if (pattern.test(text)) naturalLanguageScore++;
+  });
+  
+  // If at least 2 strong natural language indicators and not a large text block, assume it's not code
+  if (naturalLanguageScore >= 2 && text.length < 200) return false;
+  
+  // Definitive code patterns (strong indicators of actual code)
+  const hasDefinitiveCodePatterns = [
+    /\bfunction\s+\w+\s*\([^)]*\)\s*\{/i, // function declarations with brackets
+    /\bclass\s+\w+\s*(\extends\s+\w+)?\s*\{/i, // class declarations
+    /\bimport\s+[\w{},\s*]+\s+from\s+['"]/i, // JS/TS import statements
+    /\brequire\s*\(\s*['"]/i, // Node.js require statements
+    /\bdef\s+\w+\s*\([^)]*\)\s*:/i, // Python function definition
+    /^\s*from\s+[\w.]+\s+import\s+[\w,\s*]+$/m, // Python import
+    /<\w+(\s+\w+\s*=\s*["'][^"']*["'])*\s*>.*<\/\w+>/s, // HTML tags with potential attributes
+    /\s*@\w+(\([^)]*\))?\s*$/m, // Decorators/annotations (Java, Python, TS)
+    /\b(public|private|protected)\s+(static\s+)?\w+\s+\w+\s*\(/i, // Java/C# method declarations
+    /\bconst\s+\w+\s*=\s*\(?.*=>.*\)?;?$/m, // Arrow functions with assignment
+    /^\s*if\s*\([^)]*\)\s*[\{:].*$/m, // if statements
+    /^\s*for\s*\([^)]*\)\s*[\{:].*$/m, // for loops
+    /^\s*while\s*\([^)]*\)\s*[\{:].*$/m, // while loops
+    /^\s*switch\s*\([^)]*\)\s*\{.*$/m, // switch statements
+  ].some(pattern => pattern.test(text));
+  
+  // If we find any definitive code pattern, it's very likely code
+  if (hasDefinitiveCodePatterns) return true;
+  
+  // Basic code syntax checks (less definitive but still indicative)
+  const hasBrackets = /[\{\}\[\]\(\)]/.test(text);
+  const hasKeywordsOrSymbols = /\b(function|class|def|import|export|const|let|var|return|if|else|switch|case|break|continue|try|catch|finally|throw|for|while|do|in|of|new|this|super|async|await|static|void|null|undefined|true|false|=>|===|!==|&&|\|\|)\b/i.test(text);
+  const hasIndentation = /^\s{2,}|\t+/m.test(text);
+  const hasTags = /<\/?[a-zA-Z][^>]*>/.test(text);
+  const hasComments = /\/\/.*$|\/\*[\s\S]*?\*\/|#.*$/m.test(text);
+  const hasAssignmentOperations = /(^|\s)(\w+)\s*[=:]\s*[^;:,)]*[;\n]/m.test(text);
+  
+  // Check if multiple lines exist with consistent formatting
+  const lines = text.split("\n");
+  const multiLine = lines.length > 2; // Require at least 3 lines to be more certain
+  
+  // Check for consistent indentation (strong code indicator)
+  let hasConsistentIndent = false;
+  if (multiLine) {
+    // Count lines with leading spaces/tabs
+    const indentedLines = lines.filter(line => /^\s+\S/.test(line)).length;
+    hasConsistentIndent = indentedLines >= 2; // At least 2 indented lines
+  }
+  
+  // Check for semicolons or other statement terminators
+  const hasStatementTerminators = /;$|\)$|\{$|\}$/m.test(text);
+  
+  // Comprehensive scoring system
+  let score = 0;
+  if (hasBrackets) score += 1;
+  if (hasKeywordsOrSymbols) score += 2;
+  if (multiLine && hasIndentation) score += 2;
+  if (hasTags) score += 2;
+  if (hasComments) score += 2;
+  if (hasAssignmentOperations) score += 1;
+  if (hasConsistentIndent) score += 2;
+  if (hasStatementTerminators) score += 1;
+  
+  // Reduce score based on natural language indicators
+  score = Math.max(0, score - naturalLanguageScore);
+  
+  // Consider it code if the score is high enough
+  // Higher threshold for single line (to avoid false positives)
+  return multiLine ? (score >= 3) : (score >= 4);
+};
+
+// Function to try to detect language with highlight.js
+const detectLanguageWithHljs = (text: string): string | null => {
+  try {
+    // Skip very short snippets, highlightAuto can be unreliable on tiny fragments
+    if (text.trim().length < 20) return null;
+    
+    // Remove markdown code block syntax if present
+    const cleanedText = text.replace(/^```\w*\n|\n```$/g, '');
+    
+    // Use highlightAuto to detect the language
+    const result = hljs.highlightAuto(cleanedText, [
+      'javascript', 'typescript', 'python', 'java', 'html', 'css', 'cpp', 
+      'csharp', 'go', 'rust', 'bash', 'shell', 'json', 'xml', 'php', 'swift',
+      'kotlin', 'ruby', 'sql'
+    ]);
+    
+    if (result.language && result.relevance > 5) {
+      // Map highlight.js language identifier to simpler tag name if needed
+      const languageMap: {[key: string]: string} = {
+        'csharp': 'c#',
+        'cpp': 'c++',
+        // Add more mappings if needed
+      };
+      
+      return languageMap[result.language] || result.language;
+    }
+    
+    return null; // Couldn't detect with enough confidence
+  } catch (error) {
+    console.error("❌ Error in highlight.js detection:", error);
+    return null;
+  }
+};
+
+// Define a separate component for the notes section to maintain focus
+const NotesInputSection = ({ snippet, addNote, removeNote }: {
+  snippet: Snippet;
+  addNote: (snippet: Snippet, note: string) => void;
+  removeNote: (snippetId: number, noteIndex: number) => void;
+}) => {
+  const [inputValue, setInputValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  
+  // Handle note input change
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputValue(e.target.value);
+  };
+  
+  // Handle key press (Enter to add note)
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && inputValue.trim()) {
+      e.preventDefault();
+      addNote(snippet, inputValue);
+      setInputValue('');
+    }
+  };
+  
+  // Handle add button click
+  const handleAddClick = () => {
+    if (inputValue.trim()) {
+      addNote(snippet, inputValue);
+      setInputValue('');
+      // Focus back on input after adding
+      if (inputRef.current) {
+        inputRef.current.focus();
+      }
+    }
+  };
+  
+  return (
+    <div className="notes-section">
+      <div className="note-input-container">
+        <input
+          ref={inputRef}
+          type="text"
+          className="note-input"
+          placeholder="Add a note..."
+          value={inputValue}
+          onChange={handleInputChange}
+          onKeyPress={handleKeyPress}
+        />
+        <button 
+          className="add-note-btn"
+          onClick={handleAddClick}
+          disabled={!inputValue.trim()}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+      </div>
+      
+      {snippet.notes && snippet.notes.length > 0 && (
+        <ul className="notes-list">
+          {snippet.notes.map((note, index) => (
+            <li key={index} className="note-item">
+              <span className="note-text">{note}</span>
+              <button 
+                className="remove-note-btn"
+                onClick={() => removeNote(snippet.id, index)}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
 const MainScreen: React.FC = () => {
   const navigate = useNavigate();
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [capturedSnippets, setCapturedSnippets] = useState<Snippet[]>([]);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const lastCaptureRef = useRef<{ text: string, timestamp: number, fromCopyButton: boolean }>({
+    text: '',
+    timestamp: 0,
+    fromCopyButton: false
+  });
+  const hasLoadedRef = useRef(false);
+  const [editingNotesIds, setEditingNotesIds] = useState<number[]>([]);
+  const [currentNote, setCurrentNote] = useState('');
+  const noteInputRef = useRef<HTMLInputElement>(null);
+
+  // Groq API Key (Ideally use environment variables)
+  const GROQ_API_KEY = "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";
 
   const handleBack = () => {
     navigate('/');
@@ -119,6 +351,273 @@ const MainScreen: React.FC = () => {
   const toggleDemoMode = () => {
     setIsDemoMode(!isDemoMode);
   };
+
+  // Function to delete a snippet
+  const handleDeleteSnippet = (id: number) => {
+    setCapturedSnippets(prevSnippets => {
+      const updatedSnippets = prevSnippets.filter(snippet => snippet.id !== id);
+      // Save to localStorage immediately on delete
+      saveSnippetsToLocalStorage(updatedSnippets);
+      return updatedSnippets;
+    });
+  };
+
+  // Helper function to save snippets to localStorage
+  const saveSnippetsToLocalStorage = (snippets: Snippet[]) => {
+    try {
+      console.log(`💾 Saving ${snippets.length} snippets to localStorage`);
+      
+      // Serialize snippets to JSON and store in localStorage
+      const snippetsJson = JSON.stringify(snippets);
+      localStorage.setItem('saved_snippets', snippetsJson);
+      
+      console.log("✓ Snippets saved successfully to localStorage");
+    } catch (error) {
+      console.error("❌ Error saving snippets to localStorage:", error);
+    }
+  };
+
+  // Load snippets from localStorage when component mounts
+  useEffect(() => {
+    // Skip if we've already loaded (prevents duplicate loads)
+    if (hasLoadedRef.current) {
+      console.log("📋 Snippets already loaded in this session, skipping load");
+      return;
+    }
+
+    const loadSnippets = () => {
+      try {
+        console.log("📂 Loading saved snippets from localStorage...");
+        
+        // Get snippets from localStorage
+        const savedSnippetsJSON = localStorage.getItem('saved_snippets');
+        
+        if (savedSnippetsJSON) {
+          const savedSnippets = JSON.parse(savedSnippetsJSON) as Snippet[];
+          console.log(`📊 Loaded ${savedSnippets.length} saved snippets`);
+          
+          // Update state with loaded snippets
+          setCapturedSnippets(savedSnippets);
+        } else {
+          console.log("⚠️ No saved snippets found in localStorage");
+        }
+      } catch (error) {
+        console.error("❌ Error loading snippets from localStorage:", error);
+      } finally {
+        // Mark as loaded to prevent reloading
+        hasLoadedRef.current = true;
+      }
+    };
+    
+    loadSnippets();
+    
+    // No cleanup needed for this effect
+  }, []);
+
+  // Update copyToClipboard function
+  const copyToClipboard = (text: string, snippetId: number) => {
+    // Mark this copy operation as initiated by the copy button
+    lastCaptureRef.current = {
+      text: text,
+      timestamp: Date.now(),
+      fromCopyButton: true
+    };
+    
+    // Copy to clipboard
+    navigator.clipboard.writeText(text)
+      .then(() => {
+        console.log("✓ Content copied to clipboard from button");
+        setCopiedId(snippetId); // Set the copied snippet ID
+        // Reset the copied state and flag after a delay
+        setTimeout(() => {
+          setCopiedId(null);
+          lastCaptureRef.current.fromCopyButton = false;
+        }, 2000); // Reset after 2 seconds
+      })
+      .catch(err => {
+        console.error("❌ Error copying to clipboard:", err);
+      });
+  };
+
+  // Effect to listen for Tauri clipboard events and perform language detection
+  useEffect(() => {
+    console.log("🔄 Setting up clipboard listener with Heuristics + Refined Groq Classification");
+    let unlistenClipboard: (() => void) | undefined;
+
+    const detectLanguageAndAddSnippet = async (text: string) => {
+      if (!text || !text.trim()) {
+        console.log("🚫 Empty clipboard content, skipping");
+        return;
+      }
+
+      let detectedTag = 'clipboard'; // Default tag
+      let methodUsed = 'default';
+
+      // STEP 1: Try highlight.js first (it's fast and locally available)
+      const hljsResult = detectLanguageWithHljs(text);
+      if (hljsResult) {
+        detectedTag = hljsResult;
+        methodUsed = 'highlight.js';
+        console.log(`✅ highlight.js detected language: ${detectedTag}`);
+      } 
+      // STEP 2: If highlight.js fails, check heuristics before using API
+      else if (looksLikeCode(text)) {
+        // Looks like code, but highlight.js couldn't identify language - use Groq API
+        try {
+          console.log("🧠 highlight.js didn't detect language but heuristics suggest code. Calling Groq API...");
+          const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${GROQ_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              messages: [
+                {
+                  role: "system",
+                  content: `You are a programming language detection expert who can distinguish between actual code and text about code.
+
+Your task is to identify if the input is genuine programming code (like functions, classes, statements) or just text that discusses programming concepts.
+
+IMPORTANT RULES:
+1. ONLY return a language name if you're CERTAIN it's actual runnable code
+2. Return "none" for:
+   - Documentation/explanations/tutorials ABOUT code
+   - Partial/incomplete code fragments
+   - Regular text that mentions programming terms
+   - Text with keywords but no proper syntax
+   
+Examples of CODE (return language name):
+Example 1:
+\`\`\`
+function calculateArea(radius) {
+  return Math.PI * radius * radius;
+}
+\`\`\`
+Answer: javascript
+
+Example 2:
+\`\`\`
+def fibonacci(n):
+    if n <= 1:
+        return n
+    else:
+        return fibonacci(n-1) + fibonacci(n-2)
+\`\`\`
+Answer: python
+
+Examples of NON-CODE (return "none"):
+Example 1:
+\`\`\`
+The JavaScript function to calculate area takes a radius parameter and returns the formula using Math.PI.
+\`\`\`
+Answer: none
+
+Example 2:
+\`\`\`
+Python developers often use functions like def fibonacci with recursive calls to previous elements.
+\`\`\`
+Answer: none`
+                },
+                {
+                  role: "user",
+                  content: `Analyze this input and determine if it's actual code (return language name) or not (return "none"):
+
+"""
+${text.substring(0, 1500)}
+"""
+
+Think step by step:
+1. Is this actual runnable code with proper syntax?
+2. Does it have proper statement structure?
+3. Or is it just text discussing programming?
+
+Your answer (ONLY a language name or "none"):`
+                },
+              ],
+              model: "llama3-8b-8192",
+              temperature: 0.1,
+              max_tokens: 25, // Allow for analysis and final answer
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`Groq API error: ${response.statusText}`);
+          }
+
+          const data = await response.json();
+          const result = data.choices[0]?.message?.content?.trim().toLowerCase();
+          
+          // Extract just the language name if it's in a full sentence
+          // Sometimes the model gives "The language is javascript" despite instructions
+          const languageMatch = result.match(/\b(javascript|typescript|python|java|html|css|c\+\+|cpp|c#|csharp|go|rust|ruby|php|swift|kotlin|sql|bash|shell|powershell|markdown|xml|json)\b/i);
+          const detectedLanguage = languageMatch ? languageMatch[0] : result;
+
+          // If the response isn't "none" and matches a known language, use it
+          if (detectedLanguage && detectedLanguage !== 'none') {
+            detectedTag = detectedLanguage;
+            methodUsed = 'Groq API';
+            console.log(`✅ Groq API detected language: ${detectedTag}`);
+          } else {
+            console.log(`🤔 Groq API classified as 'none' or didn't return a clear language.`);
+          }
+
+        } catch (error) {
+          console.error("❌ Error calling Groq API:", error);
+          // Keep the default 'clipboard' tag on error
+        }
+      } else {
+        console.log("🤔 Content doesn't appear to be code based on heuristics. Using 'clipboard' tag.");
+      }
+
+      const newSnippet: TextSnippet = {
+        id: Date.now(),
+        type: 'text',
+        content: text,
+        source: 'Clipboard',
+        timestamp: formatTimestamp(new Date()),
+        tags: [detectedTag],
+      };
+
+      setCapturedSnippets(prevSnippets => {
+        console.log(`📊 Adding new snippet with tag: #${detectedTag} (detection method: ${methodUsed})`);
+        const updatedSnippets = [newSnippet, ...prevSnippets];
+        saveSnippetsToLocalStorage(updatedSnippets);
+        return updatedSnippets;
+      });
+
+      setIsDemoMode(false);
+    };
+
+    const setupListener = async () => {
+      try {
+        const unlistenFn = await listen<string>("clipboard-new-text", (event) => {
+          const text = event.payload;
+          const now = Date.now();
+
+          // Basic checks (duplicate, copy button)
+          if (lastCaptureRef.current.fromCopyButton) return;
+          if (text === lastCaptureRef.current.text && now - lastCaptureRef.current.timestamp < 500) return;
+
+          lastCaptureRef.current = { text, timestamp: now, fromCopyButton: false };
+          console.log("📋 Clipboard event received:", text.substring(0, 30) + "...");
+          detectLanguageAndAddSnippet(text); // Call the updated logic
+        });
+        
+        unlistenClipboard = unlistenFn;
+        console.log("✓ Clipboard listener setup complete (Heuristics + Groq Classification)");
+      } catch (error) {
+        console.error("❌ Failed to set up Tauri clipboard listener:", error);
+      }
+    };
+
+    setupListener();
+
+    return () => {
+      if (unlistenClipboard) unlistenClipboard();
+      console.log("🧹 Cleaned up clipboard listener");
+    };
+  }, []);
 
   // Get the appropriate icon for a snippet source
   const getSourceIcon = (source: string) => {
@@ -142,6 +641,7 @@ const MainScreen: React.FC = () => {
           </svg>
         );
       case 'Notes':
+      case 'Clipboard':
         return (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M19.5 3.5L18 2l-1.5 1.5L15 2l-1.5 1.5L12 2l-1.5 1.5L9 2 7.5 3.5 6 2 4.5 3.5 3 2v20l1.5-1.5L6 22l1.5-1.5L9 22l1.5-1.5L12 22l1.5-1.5L15 22l1.5-1.5L18 22l1.5-1.5L21 22V2l-1.5 1.5zM19 19.09H5V4.91h14v14.18zM6 15h12v2H6zm0-4h12v2H6zm0-4h12v2H6z" fill="#FFA500"/>
@@ -150,7 +650,7 @@ const MainScreen: React.FC = () => {
       case 'Browser':
         return (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M4 22h16a2 2 0 002-2V8l-6-6H4a2 2 0 00-2 2v16a2 2 0 002 2zm0-18h10v4a2 2 0 002 2h4v10H4V4zm2 6v2h8v-2H6zm0 4v2h12v-2H6zm0 4v2h12v-2H6z" fill="#4285F4"/>
+            <path d="M4 22h16a2 2 0 002-2V8l-6-6H4a2 2 0 00-2 2v16a2 2 0 002 2zM4 8l6 6V8H4zm10 12a2 2 0 002-2h4V8h-6v12zm2-14h6v12h-6V6z" fill="#4285F4"/>
           </svg>
         );
       case 'iMessage':
@@ -169,10 +669,61 @@ const MainScreen: React.FC = () => {
     }
   };
 
+  // Toggle notes editing UI for a snippet
+  const toggleNoteEditing = (id: number) => {
+    setEditingNotesIds(prev => {
+      if (prev.includes(id)) {
+        return prev.filter(noteId => noteId !== id);
+      }
+      return [...prev, id];
+    });
+    setCurrentNote('');
+  };
+
+  // Add a new note to a snippet
+  const addNote = (snippet: Snippet, noteText: string) => {
+    if (!noteText.trim()) return;
+
+    setCapturedSnippets(prevSnippets => {
+      const updatedSnippets = prevSnippets.map(s => {
+        if (s.id === snippet.id) {
+          const updatedNotes = s.notes ? [...s.notes, noteText.trim()] : [noteText.trim()];
+          return { ...s, notes: updatedNotes };
+        }
+        return s;
+      });
+      
+      saveSnippetsToLocalStorage(updatedSnippets);
+      return updatedSnippets;
+    });
+
+    setCurrentNote('');
+    if (noteInputRef.current) {
+      noteInputRef.current.focus();
+    }
+  };
+
+  // Remove a specific note
+  const removeNote = (snippetId: number, noteIndex: number) => {
+    setCapturedSnippets(prevSnippets => {
+      const updatedSnippets = prevSnippets.map(s => {
+        if (s.id === snippetId && s.notes) {
+          const updatedNotes = s.notes.filter((_, index) => index !== noteIndex);
+          return { ...s, notes: updatedNotes };
+        }
+        return s;
+      });
+      
+      saveSnippetsToLocalStorage(updatedSnippets);
+      return updatedSnippets;
+    });
+  };
+
   // Renders a different card UI based on snippet type
-  const renderSnippetCard = (snippet: Snippet) => {
+  const renderSnippetCard = (snippet: Snippet, handleDelete: (id: number) => void) => {
     const commonClasses = "snippet-card";
-    const { id, type, content, source, timestamp, tags } = snippet;
+    const { id, type, content, source, timestamp, tags, notes } = snippet;
+    const isEditingNotes = editingNotesIds.includes(id);
 
     // Shared card header component
     const CardHeader = () => (
@@ -182,15 +733,21 @@ const MainScreen: React.FC = () => {
             {getSourceIcon(source)}
           </span>
           <span className="app-source">{source}</span>
-          {'path' in snippet && <span className="path">{snippet.path}</span>}
-          {'handle' in snippet && <span className="handle">{snippet.handle}</span>}
-          {'author' in snippet && <span className="author">by {snippet.author}</span>}
-          {'title' in snippet && <span className="title">{snippet.title}</span>}
-          {'contact' in snippet && <span className="contact">from {snippet.contact}</span>}
+          {'path' in snippet && snippet.path && <span className="path">{snippet.path}</span>}
+          {'handle' in snippet && snippet.handle && <span className="handle">{snippet.handle}</span>}
+          {'author' in snippet && snippet.author && <span className="author">by {snippet.author}</span>}
+          {'title' in snippet && snippet.title && <span className="title">{snippet.title}</span>}
+          {'contact' in snippet && snippet.contact && <span className="contact">from {snippet.contact}</span>}
         </div>
         <div className="snippet-time">{timestamp}</div>
       </div>
     );
+
+    // Notes section component uses the separate component
+    const NotesSection = () => {
+      if (!isEditingNotes) return null;
+      return <NotesInputSection snippet={snippet} addNote={addNote} removeNote={removeNote} />;
+    };
 
     // Shared card footer with tags
     const CardFooter = () => (
@@ -201,11 +758,16 @@ const MainScreen: React.FC = () => {
           ))}
         </div>
         <div className="card-actions">
-          <button className="notes-btn" aria-label="Add personal notes">
+          <button 
+            className={`notes-btn ${isEditingNotes ? 'active' : ''}`}
+            aria-label="Toggle notes"
+            onClick={() => toggleNoteEditing(id)}
+          >
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
               <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
             </svg>
+            {notes && notes.length > 0 && <span className="note-count">{notes.length}</span>}
           </button>
           <button className="ai-btn" aria-label="Generate AI summary">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -215,81 +777,89 @@ const MainScreen: React.FC = () => {
               <path d="M9 18h6"/>
             </svg>
           </button>
-          <button className="copy-btn" aria-label="Copy snippet">
+          <button 
+            className={`copy-btn ${copiedId === id ? 'copied' : ''}`} 
+            aria-label="Copy snippet" 
+            onClick={() => copyToClipboard(content, id)}
+          >
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+          </button>
+          <button className="delete-btn" aria-label="Delete snippet" onClick={() => handleDelete(id)}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 6h18"></path>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              <line x1="10" y1="11" x2="10" y2="17"></line>
+              <line x1="14" y1="11" x2="14" y2="17"></line>
             </svg>
           </button>
         </div>
       </div>
     );
 
+    // Card rendering based on type
+    const renderCard = (children: React.ReactNode) => (
+      <div className={`${commonClasses} ${type}-snippet`}>
+        <CardHeader />
+        {children}
+        <NotesSection />
+        <CardFooter />
+      </div>
+    );
+
     switch (type) {
       case 'code':
-        return (
-          <div key={id} className={`${commonClasses} code-snippet`}>
-            <CardHeader />
-            <pre className="snippet-content code">
-              <code>{content}</code>
-            </pre>
-            <CardFooter />
+        return renderCard(
+          <pre className="snippet-content code">
+            <code>{content}</code>
+          </pre>
+        );
+
+      case 'tweet':
+        return renderCard(
+          <div className={`snippet-content tweet`}>
+            {content}
           </div>
         );
       
-      case 'tweet':
-        return (
-          <div key={id} className={`${commonClasses} tweet-snippet`}>
-            <CardHeader />
-            <div className="snippet-content tweet">
+      case 'text':
+        // For text snippets, detect if content has newlines
+        const hasNewlines = content.includes('\n');
+        const textContentClass = hasNewlines ? "text text-multiline" : "text";
+        
+        return renderCard(
+          hasNewlines ? (
+            <pre className={`snippet-content ${textContentClass}`}>
+              {content}
+            </pre>
+          ) : (
+            <div className={`snippet-content ${textContentClass}`}>
               {content}
             </div>
-            <CardFooter />
+          )
+        );
+      
+      case 'message':
+        return renderCard(
+          <div className={`snippet-content message`}>
+            {content}
           </div>
         );
       
       case 'quote':
-        return (
-          <div key={id} className={`${commonClasses} quote-snippet`}>
-            <CardHeader />
-            <blockquote className="snippet-content quote">
-              {content}
-            </blockquote>
-            <CardFooter />
-          </div>
+        return renderCard(
+          <blockquote className="snippet-content quote">
+            {content}
+          </blockquote>
         );
 
       case 'link':
-        return (
-          <div key={id} className={`${commonClasses} link-snippet`}>
-            <CardHeader />
-            <a href={content} className="snippet-content link" target="_blank" rel="noopener noreferrer">
-              {content}
-            </a>
-            <CardFooter />
-          </div>
-        );
-
-      case 'text':
-        return (
-          <div key={id} className={`${commonClasses} text-snippet`}>
-            <CardHeader />
-            <div className="snippet-content text">
-              {content}
-            </div>
-            <CardFooter />
-          </div>
-        );
-      
-      case 'message':
-        return (
-          <div key={id} className={`${commonClasses} message-snippet`}>
-            <CardHeader />
-            <div className="snippet-content message">
-              {content}
-            </div>
-            <CardFooter />
-          </div>
+        return renderCard(
+          <a href={content} className="snippet-content link" target="_blank" rel="noopener noreferrer">
+            {(snippet as LinkSnippet).title || content}
+          </a>
         );
     }
   };
@@ -311,12 +881,44 @@ const MainScreen: React.FC = () => {
           </div>
 
           <div className="snippets-container">
-            {demoSnippets.map(snippet => renderSnippetCard(snippet))}
+            <div className="snippets-column">
+              {demoSnippets.filter((_, index) => index % 2 === 0).map(snippet => (
+                <div key={snippet.id} className="snippet-wrapper">
+                  {renderSnippetCard(snippet, handleDeleteSnippet)}
+                </div>
+              ))}
+            </div>
+            <div className="snippets-column">
+              {demoSnippets.filter((_, index) => index % 2 === 1).map(snippet => (
+                <div key={snippet.id} className="snippet-wrapper">
+                  {renderSnippetCard(snippet, handleDeleteSnippet)}
+                </div>
+              ))}
+            </div>
           </div>
 
           <button className="exit-demo-btn" onClick={toggleDemoMode}>
             Exit Demo Mode
           </button>
+        </div>
+      ) : capturedSnippets.length > 0 ? (
+        <div className="captured-snippets-container demo-mode-container">
+          <div className="snippets-container">
+            <div className="snippets-column">
+              {capturedSnippets.filter((_, index) => index % 2 === 0).map(snippet => (
+                <div key={snippet.id} className="snippet-wrapper">
+                  {renderSnippetCard(snippet, handleDeleteSnippet)}
+                </div>
+              ))}
+            </div>
+            <div className="snippets-column">
+              {capturedSnippets.filter((_, index) => index % 2 === 1).map(snippet => (
+                <div key={snippet.id} className="snippet-wrapper">
+                  {renderSnippetCard(snippet, handleDeleteSnippet)}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       ) : (
         <div className="empty-state">
