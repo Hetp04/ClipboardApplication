@@ -1,0 +1,118 @@
+:root {
+  --primary-color: #2563eb;
+  --background-color: #ffffff;
+  --text-color: #1f2937;
+  --accent-glow: rgba(37, 99, 235, 0.3);
+}
+
+.splash-screen {
+  position: fixed;
+  inset: 0;
+  background-color: var(--background-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  opacity: 1;
+  transition: opacity 0.7s ease-in-out;
+  overflow: hidden;
+}
+
+@media (prefers-color-scheme: dark) {
+  .splash-screen {
+    background-color: #0f172a;
+  }
+}
+
+.splash-screen.fade-out {
+  opacity: 0;
+}
+
+/* ===== CONTENT CONTAINER ===== */
+.splash-content-container {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+}
+
+/* ===== LOGO STYLING ===== */
+.logo-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.logo-reveal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-char {
+  display: inline-block;
+  font-size: 3.5rem;
+  font-weight: 600;
+  color: var(--text-color);
+  opacity: 0;
+  transform: translateY(20px);
+  filter: drop-shadow(0 0 8px var(--accent-glow));
+  animation: revealChar 1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  letter-spacing: -0.02em;
+}
+
+@media (prefers-color-scheme: dark) {
+  .logo-char {
+    color: #f3f4f6;
+  }
+}
+
+@keyframes revealChar {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+    filter: blur(5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0) drop-shadow(0 0 8px var(--accent-glow));
+  }
+}
+
+.logo-underline {
+  width: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--primary-color), transparent);
+  animation: expandUnderline 1.5s ease-out 1s forwards;
+}
+
+@keyframes expandUnderline {
+  0% { width: 0; opacity: 0; }
+  100% { width: 100%; opacity: 0.7; }
+}
+
+/* Tagline styling */
+.tagline {
+  font-size: 1rem;
+  opacity: 0;
+  color: #4b5563;
+  animation: fadeIn 0.8s ease-out 1.5s forwards;
+  letter-spacing: 0.01em;
+}
+
+@media (prefers-color-scheme: dark) {
+  .tagline {
+    color: #d1d5db;
+  }
+}
+
+@keyframes fadeIn {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
