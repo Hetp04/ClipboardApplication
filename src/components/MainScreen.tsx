@@ -7,7 +7,7 @@ import hljs from 'highlight.js'; // Use standard highlight.js import
 
 // Define types for snippets
 interface BaseSnippet {
-  id: number;
+  id: string;
   type: string;
   content: string;
   source: string;
@@ -54,7 +54,7 @@ type Snippet = CodeSnippet | TweetSnippet | QuoteSnippet | LinkSnippet | TextSni
 // Sample snippet data for demo mode
 const demoSnippets: Snippet[] = [
   {
-    id: 1,
+    id: 'demo-1',
     type: 'code',
     content: `const fetchUserData = async (userId) => {
   try {
@@ -71,7 +71,7 @@ const demoSnippets: Snippet[] = [
     tags: ['typescript', 'react', 'api']
   },
   {
-    id: 2,
+    id: 'demo-2',
     type: 'tweet',
     content: 'Just launched our new design system! Check out how we\'re using Figma and React to create a seamless workflow between design and development. #designsystem #frontend',
     source: 'Twitter',
@@ -80,7 +80,7 @@ const demoSnippets: Snippet[] = [
     tags: ['design', 'announcement']
   },
   {
-    id: 3,
+    id: 'demo-3',
     type: 'quote',
     content: 'The best way to predict the future is to invent it. The future is not laid out on a track. It is something that we can decide, and to the extent that we do not violate any known laws of the universe, we can probably make it work the way that we want to.',
     source: 'Medium',
@@ -89,7 +89,7 @@ const demoSnippets: Snippet[] = [
     tags: ['inspiration', 'quote']
   },
   {
-    id: 4,
+    id: 'demo-4',
     type: 'text',
     content: 'Pick up groceries: eggs, milk, bread, avocados, chicken, pasta',
     source: 'Notes',
@@ -97,7 +97,7 @@ const demoSnippets: Snippet[] = [
     tags: ['todo']
   },
   {
-    id: 5,
+    id: 'demo-5',
     type: 'link',
     content: 'https://react.dev/reference/react',
     source: 'Browser',
@@ -106,7 +106,7 @@ const demoSnippets: Snippet[] = [
     tags: ['resource', 'reference', 'react']
   },
   {
-    id: 6,
+    id: 'demo-6',
     type: 'message',
     content: 'Hey, can you send me the latest design mockups for the dashboard? I need to implement those changes by Friday.',
     source: 'iMessage',
@@ -224,18 +224,101 @@ const detectLanguageWithHljs = (text: string): string | null => {
     // Remove markdown code block syntax if present
     const cleanedText = text.replace(/^```\w*\n|\n```$/g, '');
     
-    // Use highlightAuto to detect the language
+    // Strong language markers that can quickly identify a language with high confidence
+    const languageMarkers: {[key: string]: RegExp[]} = {
+      'python': [
+        /\bdef\s+\w+\s*\(.*\):\s*$/m,
+        /\bimport\s+\w+(\.\w+)*(\s+as\s+\w+)?/,
+        /^\s*if\s+__name__\s*==\s*['"]__main__['"]\s*:/m
+      ],
+      'javascript': [
+        /\bconst\s+\w+\s*=|let\s+\w+\s*=|var\s+\w+\s*=|\bfunction\s+\w+\s*\(/,
+        /\bnew\s+Promise\s*\(|\basync\s+function|\bawait\s+/,
+        /\bdocument\.getElementById\s*\(|\bwindow\./
+      ],
+      'typescript': [
+        /\binterface\s+\w+\s*\{|\btype\s+\w+\s*=|\b\w+\s*:\s*(string|number|boolean|any)\b/,
+        /\w+<\w+(\[\])?>/
+      ],
+      'html': [
+        /<!DOCTYPE\s+html>|<html[^>]*>|<body[^>]*>|<div[^>]*>/i,
+        /<\/?[a-z][\s\S]*>/i
+      ],
+      'css': [
+        /[.#][\w-]+\s*\{[^}]*\}/,
+        /@media\s+/,
+        /\b(margin|padding|border|color|background|font-size|width|height)\s*:/
+      ],
+      'java': [
+        /\bpublic\s+(static\s+)?(void|class|interface)\b/,
+        /\bSystem\.out\.println\(/,
+        /\bimport\s+java\./
+      ],
+      'c++': [
+        /#include\s*<[^>]+>/,
+        /\bstd::\w+/,
+        /\bnamespace\s+\w+/
+      ],
+      'csharp': [
+        /\busing\s+System;/,
+        /\bnamespace\s+\w+/,
+        /\bConsole\.Write(Line)?\(/
+      ],
+      'rust': [
+        /\bfn\s+\w+/,
+        /\blet\s+mut\s+\w+/,
+        /\bimpl\s+\w+\s+for\s+\w+/
+      ],
+      'go': [
+        /\bpackage\s+main/,
+        /\bfunc\s+\w+/,
+        /\bfmt\.(Print|Println|Printf)\(/
+      ],
+      'sql': [
+        /\bSELECT\s+.+?\s+FROM\s+/i,
+        /\bCREATE\s+TABLE\s+/i,
+        /\bINSERT\s+INTO\s+/i
+      ],
+      'php': [
+        /<\?php/,
+        /\becho\s+/,
+        /\$\w+\s*=/
+      ],
+      'ruby': [
+        /\bdef\s+\w+(\(.+\))?\s*\n/,
+        /\bclass\s+\w+(\s+<\s+\w+)?/,
+        /\bend\b/
+      ],
+      'bash': [
+        /^#!/,
+        /\becho\s+["']/,
+        /\$\(\w+\)/
+      ]
+    };
+    
+    // First try a quick check for strong language markers
+    for (const [language, patterns] of Object.entries(languageMarkers)) {
+      if (patterns.some(pattern => pattern.test(cleanedText))) {
+        return language;
+      }
+    }
+    
+    // If no strong markers matched, use highlight.js auto detection
     const result = hljs.highlightAuto(cleanedText, [
       'javascript', 'typescript', 'python', 'java', 'html', 'css', 'cpp', 
       'csharp', 'go', 'rust', 'bash', 'shell', 'json', 'xml', 'php', 'swift',
-      'kotlin', 'ruby', 'sql'
+      'kotlin', 'ruby', 'sql', 'yaml', 'markdown'
     ]);
     
-    if (result.language && result.relevance > 5) {
+    // Require a higher relevance threshold for reliable detection
+    if (result.language && result.relevance > 8) {
       // Map highlight.js language identifier to simpler tag name if needed
       const languageMap: {[key: string]: string} = {
         'csharp': 'c#',
         'cpp': 'c++',
+        'js': 'javascript',
+        'ts': 'typescript',
+        'py': 'python',
         // Add more mappings if needed
       };
       
@@ -253,7 +336,7 @@ const detectLanguageWithHljs = (text: string): string | null => {
 const NotesInputSection = ({ snippet, addNote, removeNote }: {
   snippet: Snippet;
   addNote: (snippet: Snippet, note: string) => void;
-  removeNote: (snippetId: number, noteIndex: number) => void;
+  removeNote: (snippetId: string, noteIndex: number) => void;
 }) => {
   const [inputValue, setInputValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -330,18 +413,36 @@ const NotesInputSection = ({ snippet, addNote, removeNote }: {
   );
 };
 
+// Helper function to load snippets initially
+const loadInitialSnippets = (): Snippet[] => {
+  console.log('[Load] Attempting to load initial snippets from localStorage...');
+  try {
+    const savedSnippetsJSON = localStorage.getItem('saved_snippets');
+    console.log('[Load] Raw data from localStorage:', savedSnippetsJSON ? savedSnippetsJSON.substring(0, 100) + '...' : 'null');
+    if (savedSnippetsJSON) {
+      const savedSnippets = JSON.parse(savedSnippetsJSON) as Snippet[];
+      console.log(`[Load] Successfully parsed ${savedSnippets.length} snippets.`);
+      return savedSnippets;
+    }
+    console.log("[Load] No saved snippets found.");
+  } catch (error) {
+    console.error("[Load] Error parsing snippets from localStorage:", error);
+  }
+  return []; // Return empty array if not found or error occurs
+};
+
 const MainScreen: React.FC = () => {
   const navigate = useNavigate();
   const [isDemoMode, setIsDemoMode] = useState(false);
-  const [capturedSnippets, setCapturedSnippets] = useState<Snippet[]>([]);
-  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [capturedSnippets, setCapturedSnippets] = useState<Snippet[]>(loadInitialSnippets());
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const lastCaptureRef = useRef<{ text: string, timestamp: number, fromCopyButton: boolean }>({
     text: '',
     timestamp: 0,
     fromCopyButton: false
   });
   const hasLoadedRef = useRef(false);
-  const [editingNotesIds, setEditingNotesIds] = useState<number[]>([]);
+  const [editingNotesIds, setEditingNotesIds] = useState<string[]>([]);
   // @ts-ignore
   const [currentNote, setCurrentNote] = useState('');
   const noteInputRef = useRef<HTMLInputElement>(null);
@@ -357,8 +458,24 @@ const MainScreen: React.FC = () => {
     setIsDemoMode(!isDemoMode);
   };
 
+  // Function to delete ALL snippets
+  const handleDeleteAll = () => {
+    console.warn('[Delete All] Clearing all snippets from state and localStorage.');
+    // Clear the state
+    setCapturedSnippets([]);
+    // Clear localStorage
+    try {
+      localStorage.removeItem('saved_snippets');
+      console.log('[Delete All] localStorage cleared successfully.');
+    } catch (error) {
+      console.error('❌ [Delete All] Error clearing localStorage:', error);
+    }
+    // Also clear editing state if any
+    setEditingNotesIds([]);
+  };
+
   // Function to delete a snippet
-  const handleDeleteSnippet = (id: number) => {
+  const handleDeleteSnippet = (id: string) => {
     setCapturedSnippets(prevSnippets => {
       const updatedSnippets = prevSnippets.filter(snippet => snippet.id !== id);
       // Save to localStorage immediately on delete
@@ -369,58 +486,43 @@ const MainScreen: React.FC = () => {
 
   // Helper function to save snippets to localStorage
   const saveSnippetsToLocalStorage = (snippets: Snippet[]) => {
+    console.log(`[Save] Attempting to save ${snippets.length} snippets...`);
+    if (snippets.length === 0) {
+      console.warn('[Save] Attempting to save an empty array. This might clear localStorage.');
+    }
     try {
-      console.log(`💾 Saving ${snippets.length} snippets to localStorage`);
-      
-      // Serialize snippets to JSON and store in localStorage
+      // Serialize the original snippets (including icons) to JSON and store in localStorage
       const snippetsJson = JSON.stringify(snippets);
+      console.log('[Save] Saving JSON data (first 100 chars):', snippetsJson.substring(0, 100) + '...');
       localStorage.setItem('saved_snippets', snippetsJson);
-      
-      console.log("✓ Snippets saved successfully to localStorage");
+      console.log("[Save] Snippets saved successfully to localStorage.");
     } catch (error) {
-      console.error("❌ Error saving snippets to localStorage:", error);
+      // Check specifically for QuotaExceededError
+      if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+        console.error("❌💾 [Save] QuotaExceededError: LocalStorage is full. Cannot save snippets. Consider adding a 'Clear All' button or implementing storage limits.");
+        // Optionally, notify the user or implement an LRU cache here
+      } else {
+        console.error("❌ [Save] Error saving snippets to localStorage:", error);
+      }
     }
   };
 
-  // Load snippets from localStorage when component mounts
+  // Effect to save snippets whenever they change
   useEffect(() => {
-    // Skip if we've already loaded (prevents duplicate loads)
+    console.log('[Save Effect] useEffect triggered. hasLoadedRef.current:', hasLoadedRef.current, 'Snippets count:', capturedSnippets.length);
+    // Don't save during the initial load, as loadInitialSnippets handles that
     if (hasLoadedRef.current) {
-      console.log("📋 Snippets already loaded in this session, skipping load");
-      return;
+      console.log('[Save Effect] Calling saveSnippetsToLocalStorage...');
+      saveSnippetsToLocalStorage(capturedSnippets);
+    } else {
+      // Mark initial load as complete after the first render
+      console.log('[Save Effect] Initial load detected, marking hasLoadedRef.current = true');
+      hasLoadedRef.current = true;
     }
-
-    const loadSnippets = () => {
-      try {
-        console.log("📂 Loading saved snippets from localStorage...");
-        
-        // Get snippets from localStorage
-        const savedSnippetsJSON = localStorage.getItem('saved_snippets');
-        
-        if (savedSnippetsJSON) {
-          const savedSnippets = JSON.parse(savedSnippetsJSON) as Snippet[];
-          console.log(`📊 Loaded ${savedSnippets.length} saved snippets`);
-          
-          // Update state with loaded snippets
-          setCapturedSnippets(savedSnippets);
-        } else {
-          console.log("⚠️ No saved snippets found in localStorage");
-        }
-      } catch (error) {
-        console.error("❌ Error loading snippets from localStorage:", error);
-      } finally {
-        // Mark as loaded to prevent reloading
-        hasLoadedRef.current = true;
-      }
-    };
-    
-    loadSnippets();
-    
-    // No cleanup needed for this effect
-  }, []);
+  }, [capturedSnippets]); // Dependency array ensures this runs when capturedSnippets changes
 
   // Update copyToClipboard function
-  const copyToClipboard = (text: string, snippetId: number) => {
+  const copyToClipboard = (text: string, snippetId: string) => {
     // Mark this copy operation as initiated by the copy button
     lastCaptureRef.current = {
       text: text,
@@ -455,21 +557,22 @@ const MainScreen: React.FC = () => {
         return;
       }
 
-      let detectedTag = 'clipboard'; // Default tag
+      // Default tag
+      let tags: string[] = ['clipboard'];
       let methodUsed = 'default';
+      let contentType = 'text';
+      let confidence = 1.0;
 
-      // STEP 1: Try highlight.js first (it's fast and locally available)
-      const hljsResult = detectLanguageWithHljs(text);
-      if (hljsResult) {
-        detectedTag = hljsResult;
-        methodUsed = 'highlight.js';
-        console.log(`✅ highlight.js detected language: ${detectedTag}`);
-      } 
-      // STEP 2: If highlight.js fails, check heuristics before using API
-      else if (looksLikeCode(text)) {
-        // Looks like code, but highlight.js couldn't identify language - use Groq API
+      // Quick URL check (keep this for immediate tagging of obvious URLs)
+      const urlRegex = /^(https?:\/\/)([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/i;
+      if (urlRegex.test(text)) {
+        tags = ['link', 'url'];
+        methodUsed = 'regex-url';
+        console.log(`✅ Detected link via regex`);
+      } else {
+        // Use Groq for comprehensive tag analysis
         try {
-          console.log("🧠 highlight.js didn't detect language but heuristics suggest code. Calling Groq API...");
+          console.log("🧠 Calling Groq API for content tagging...");
           const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
             headers: {
@@ -480,68 +583,94 @@ const MainScreen: React.FC = () => {
               messages: [
                 {
                   role: "system",
-                  content: `You are a programming language detection expert who can distinguish between actual code and text about code.
+                  content: `You are ClipTagger, an expert programming language classifier and content analyzer who can identify the most relevant tag categories for any type of content.
 
-Your task is to identify if the input is genuine programming code (like functions, classes, statements) or just text that discusses programming concepts.
+Your task is to analyze clipboard content and generate appropriate tags that accurately describe the content type, especially for code snippets.
 
 IMPORTANT RULES:
-1. ONLY return a language name if you're CERTAIN it's actual runnable code
-2. Return "none" for:
-   - Documentation/explanations/tutorials ABOUT code
-   - Partial/incomplete code fragments
-   - Regular text that mentions programming terms
-   - Text with keywords but no proper syntax
-   
-Examples of CODE (return language name):
-Example 1:
-\`\`\`
-function calculateArea(radius) {
-  return Math.PI * radius * radius;
+1. Return ONLY a JSON object with "tags" array and "confidence" score (0.0-1.0)
+2. Tags must be all lowercase, single words or short hyphenated phrases
+3. Focus on identifying the MAIN content type and format, not what it's about
+4. For code snippets, be EXTREMELY precise about the programming language - NEVER default to JavaScript
+5. Analyze syntax patterns, keywords, and indentation carefully to determine the correct language
+6. Never return empty tags array - always include at least "text" if nothing else applies
+7. Assign higher confidence (0.9-1.0) for clear classifications, lower (0.5-0.8) for uncertain ones
+
+Programming language identification guidelines:
+- Look for language-specific keywords, syntax and patterns
+- JavaScript: function, const, let, var, =>
+- TypeScript: interface, type, :string, :number, <>
+- Python: def, elif, import, __init__, indentation without braces
+- HTML: <html>, <div>, <body>, tag structures
+- CSS: selectors, {property: value}, @media
+- Java: public class, public static void main, System.out.println
+- C++: #include, std::, iostream, vectors
+- C#: using System, namespace, Console.WriteLine
+- Go: package main, func, fmt.Println, :=
+- Rust: fn, let mut, impl, match, Option<>
+- SQL: SELECT, FROM, WHERE, JOIN
+- PHP: <?php, echo, $variables
+- Ruby: def, end, require, puts
+- Shell/Bash: #!/bin/bash, echo $, command patterns
+
+The most important categories to consider:
+- code (with specific language detected)
+- link, url, web-address
+- email, contact-info
+- error-message, log, stack-trace
+- password, credential, api-key, token
+- todo-item, list, checklist
+- file-path, directory
+- timestamp, date-time
+- table, csv, tabular-data
+- quote, citation
+- question, answer
+- markdown, formatting
+- formula, equation, math
+- json, yaml, xml
+- command, terminal, shell
+- structured-data
+
+Example outputs:
+1. For JavaScript code:
+{
+  "tags": ["code", "javascript"],
+  "confidence": 0.95
 }
-\`\`\`
-Answer: javascript
 
-Example 2:
-\`\`\`
-def fibonacci(n):
-    if n <= 1:
-        return n
-    else:
-        return fibonacci(n-1) + fibonacci(n-2)
-\`\`\`
-Answer: python
+2. For Python code:
+{
+  "tags": ["code", "python"],
+  "confidence": 0.95
+}
 
-Examples of NON-CODE (return "none"):
-Example 1:
-\`\`\`
-The JavaScript function to calculate area takes a radius parameter and returns the formula using Math.PI.
-\`\`\`
-Answer: none
+3. For a shopping list:
+{
+  "tags": ["list", "todo-item"],
+  "confidence": 0.9
+}
 
-Example 2:
-\`\`\`
-Python developers often use functions like def fibonacci with recursive calls to previous elements.
-\`\`\`
-Answer: none`
+4. For an error message:
+{
+  "tags": ["error-message", "stack-trace"],
+  "confidence": 0.85
+}`
                 },
                 {
                   role: "user",
-                  content: `Analyze this input and determine if it's actual code (return language name) or not (return "none"):
+                  content: `Analyze this clipboard content and generate ALL possible broad tag categories:
 
 """
 ${text.substring(0, 1500)}
 """
-Think step by step:
-1. Is this actual runnable code with proper syntax?
-2. Does it have proper statement structure?
-3. Or is it just text discussing programming?
 
-Your answer (ONLY a language name or "none"):`
+Respond ONLY with a JSON object with "tags" array and "confidence" score.`
                 },
               ],
               model: "llama3-8b-8192",
-              temperature: 0.1,
-              max_tokens: 25, // Allow for analysis and final answer
+              temperature: 0.2,
+              max_tokens: 150,
+              response_format: { type: "json_object" },
             }),
           });
 
@@ -550,44 +679,165 @@ Your answer (ONLY a language name or "none"):`
           }
 
           const data = await response.json();
-          const result = data.choices[0]?.message?.content?.trim().toLowerCase();
-          
-          // Extract just the language name if it's in a full sentence
-          // Sometimes the model gives "The language is javascript" despite instructions
-          const languageMatch = result.match(/\b(javascript|typescript|python|java|html|css|c\+\+|cpp|c#|csharp|go|rust|ruby|php|swift|kotlin|sql|bash|shell|powershell|markdown|xml|json)\b/i);
-          const detectedLanguage = languageMatch ? languageMatch[0] : result;
+          const result = data.choices[0]?.message?.content;
 
-          // If the response isn't "none" and matches a known language, use it
-          if (detectedLanguage && detectedLanguage !== 'none') {
-            detectedTag = detectedLanguage;
-            methodUsed = 'Groq API';
-            console.log(`✅ Groq API detected language: ${detectedTag}`);
+          if (result) {
+            try {
+              const classification = JSON.parse(result);
+              
+              if (classification.tags && Array.isArray(classification.tags) && classification.tags.length > 0) {
+                // Use the dynamically generated tags, but limit to 2 most relevant tags
+                tags = classification.tags
+                  .map((tag: string) => tag.toLowerCase())
+                  // Prioritize tags (keep them unique)
+                  .filter((tag: string, index: number, self: string[]) => self.indexOf(tag) === index);
+                
+                // Select only 2 most relevant tags
+                // - Keep 'code' and its language if present
+                // - Keep specific content type identifiers over generic ones
+                const codeTag = tags.findIndex(tag => tag === 'code');
+                const languageTag = tags.findIndex(tag => [
+                  'javascript', 'typescript', 'python', 'html', 'css', 
+                  'java', 'c++', 'csharp', 'c#', 'go', 'rust', 'sql', 
+                  'php', 'ruby', 'swift', 'kotlin', 'bash', 'shell', 
+                  'yaml', 'json', 'xml', 'markdown'
+                ].includes(tag));
+                
+                // Priority tags that should be kept if present
+                const priorityTags = ['link', 'url', 'email', 'error-message', 'table', 'json', 'list', 'todo-item', 'markdown'];
+                
+                // Low priority tags that should be selected last
+                const lowPriorityTags = ['text', 'clipboard', 'snippet', 'content'];
+                
+                // Create a priority-sorted array of tags
+                let sortedTags: string[] = [];
+                
+                // First add code+language pair if both exist
+                if (codeTag !== -1 && languageTag !== -1) {
+                  sortedTags.push(tags[codeTag], tags[languageTag]);
+                }
+                // Then add code alone if it exists
+                else if (codeTag !== -1) {
+                  sortedTags.push(tags[codeTag]);
+                  
+                  // If code exists but no language was detected, try highlight.js
+                  const hljsResult = detectLanguageWithHljs(text);
+                  if (hljsResult) {
+                    sortedTags.push(hljsResult);
+                  }
+                }
+                
+                // Then add any priority tags
+                priorityTags.forEach(pTag => {
+                  const tagIndex = tags.findIndex(tag => tag === pTag);
+                  if (tagIndex !== -1 && !sortedTags.includes(tags[tagIndex])) {
+                    sortedTags.push(tags[tagIndex]);
+                  }
+                });
+                
+                // Then add remaining tags except low priority ones
+                tags.forEach(tag => {
+                  if (!sortedTags.includes(tag) && !lowPriorityTags.includes(tag)) {
+                    sortedTags.push(tag);
+                  }
+                });
+                
+                // Finally, add low priority tags if needed
+                if (sortedTags.length < 2) {
+                  lowPriorityTags.forEach(pTag => {
+                    const tagIndex = tags.findIndex(tag => tag === pTag);
+                    if (tagIndex !== -1 && !sortedTags.includes(tags[tagIndex])) {
+                      sortedTags.push(tags[tagIndex]);
+                    }
+                  });
+                }
+                
+                // Limit to 2 tags
+                tags = sortedTags.slice(0, 2);
+                
+                // Set confidence if available
+                if (typeof classification.confidence === 'number') {
+                  confidence = classification.confidence;
+                }
+                
+                methodUsed = 'Groq API';
+                console.log(`✅ Groq tagging result (limited to top 2 tags):`, tags);
+              } else {
+                console.log("🤔 Groq API returned invalid tags format.");
+              }
+            } catch (parseError) {
+              console.error("❌ Error parsing Groq JSON response:", parseError, "Raw response:", result);
+              // Use default tags on error
+              tags = ['clipboard', 'text'];
+            }
           } else {
-            console.log(`🤔 Groq API classified as 'none' or didn't return a clear language.`);
+            console.log("🤔 Groq API did not return a valid response.");
           }
-
         } catch (error) {
           console.error("❌ Error calling Groq API:", error);
-          // Keep the default 'clipboard' tag on error
+          // Fallback to basic code detection
+          if (looksLikeCode(text)) {
+            // First try with highlight.js
+            const hljsResult = detectLanguageWithHljs(text);
+            if (hljsResult) {
+              tags = ['code', hljsResult];
+              methodUsed = 'fallback-highlight.js';
+            } else {
+              // Just generic code tag if language can't be determined
+              tags = ['code'];
+              methodUsed = 'fallback-heuristics';
+            }
+          } else {
+            // Try to detect obvious content types based on patterns
+            if (/^https?:\/\/\S+/i.test(text)) {
+              tags = ['link', 'url'];
+              methodUsed = 'fallback-regex';
+            } else if (/^([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/i.test(text)) {
+              tags = ['email', 'contact-info'];
+              methodUsed = 'fallback-regex';
+            } else if (/Error:|Exception:|FATAL:|WARNING:|^Stack trace:|\bat\s+[\w\.$]+\([^)]+\)/im.test(text)) {
+              tags = ['error-message', 'log'];
+              methodUsed = 'fallback-regex';
+            } else if (/^\s*[\*\-\+]\s|^\d+\.\s/m.test(text) && text.split('\n').length > 2) {
+              tags = ['list', 'text'];
+              methodUsed = 'fallback-regex';
+            } else {
+              // Just use default tag for plain text
+              tags = ['text'];
+              methodUsed = 'fallback-default';
+            }
+          }
         }
-      } else {
-        console.log("🤔 Content doesn't appear to be code based on heuristics. Using 'clipboard' tag.");
       }
 
+      // Ensure tags array is unique 
+      tags = [...new Set(tags)];
+
       const newSnippet: TextSnippet = {
-        id: Date.now(),
+        id: crypto.randomUUID(),
         type: 'text',
         content: text,
         source: sourceApp?.name || 'Clipboard',
         sourceApp: sourceApp,
         timestamp: formatTimestamp(new Date()),
-        tags: [detectedTag],
+        tags: tags,
       };
 
       setCapturedSnippets(prevSnippets => {
-        console.log(`📊 Adding new snippet with tag: #${detectedTag} (detection method: ${methodUsed})`);
+        console.log(`[State Update] Adding new snippet with tags: #${tags.join(', #')} (detection method: ${methodUsed}, confidence: ${confidence})`);
+        console.log('[State Update] Previous snippets count:', prevSnippets.length);
+        console.log('[State Update] Previous snippets (first 3):', prevSnippets.slice(0, 3).map(s => ({ id: s.id, content: s.content.substring(0, 20) + '...' })));
+        console.log('[State Update] New snippet being added:', { id: newSnippet.id, content: newSnippet.content.substring(0, 20) + '...' });
+
         const updatedSnippets = [newSnippet, ...prevSnippets];
-        saveSnippetsToLocalStorage(updatedSnippets);
+
+        console.log('[State Update] Updated snippets count:', updatedSnippets.length);
+        console.log('[State Update] Updated snippets (first 3):', updatedSnippets.slice(0, 3).map(s => ({ id: s.id, content: s.content.substring(0, 20) + '...' })));
+
+        // The useEffect watching capturedSnippets handles saving now, so this specific call might be redundant,
+        // but leaving it here for now shouldn't cause harm.
+        // saveSnippetsToLocalStorage(updatedSnippets); 
+        
         return updatedSnippets;
       });
 
@@ -675,7 +925,7 @@ Your answer (ONLY a language name or "none"):`
   };
 
   // Toggle notes editing UI for a snippet
-  const toggleNoteEditing = (id: number) => {
+  const toggleNoteEditing = (id: string) => {
     setEditingNotesIds(prev => {
       if (prev.includes(id)) {
         return prev.filter(noteId => noteId !== id);
@@ -709,7 +959,7 @@ Your answer (ONLY a language name or "none"):`
   };
 
   // Remove a specific note
-  const removeNote = (snippetId: number, noteIndex: number) => {
+  const removeNote = (snippetId: string, noteIndex: number) => {
     setCapturedSnippets(prevSnippets => {
       const updatedSnippets = prevSnippets.map(s => {
         if (s.id === snippetId && s.notes) {
@@ -725,7 +975,7 @@ Your answer (ONLY a language name or "none"):`
   };
 
   // Renders a different card UI based on snippet type
-  const renderSnippetCard = (snippet: Snippet, handleDelete: (id: number) => void) => {
+  const renderSnippetCard = (snippet: Snippet, handleDelete: (id: string) => void) => {
     const commonClasses = "snippet-card";
     const { id, type, content, source, timestamp, tags, notes } = snippet;
     const isEditingNotes = editingNotesIds.includes(id);
@@ -828,8 +1078,8 @@ Your answer (ONLY a language name or "none"):`
       </div>
     );
 
-    // Card rendering based on type
-    const renderCard = (children: React.ReactNode) => (
+    // Use a variable for the main card rendering logic
+    const CardLayout = ({ children }: { children: React.ReactNode }) => (
       <div className={`${commonClasses} ${type}-snippet`}>
         <CardHeader />
         {children}
@@ -840,58 +1090,70 @@ Your answer (ONLY a language name or "none"):`
 
     switch (type) {
       case 'code':
-        return renderCard(
-          <pre className="snippet-content code">
-            <code>{content}</code>
-          </pre>
+        return (
+          <CardLayout>
+            <pre className="snippet-content code">
+              <code>{content}</code>
+            </pre>
+          </CardLayout>
         );
 
       case 'tweet':
-        return renderCard(
-          <div className={`snippet-content tweet`}>
-            {content}
-          </div>
+        return (
+          <CardLayout>
+            <div className={`snippet-content tweet`}>
+              {content}
+            </div>
+          </CardLayout>
         );
       
       case 'text':
-        // For text snippets, detect if content has newlines
         const hasNewlines = content.includes('\n');
         const textContentClass = hasNewlines ? "text text-multiline" : "text";
-        
-        return renderCard(
-          hasNewlines ? (
-            <pre className={`snippet-content ${textContentClass}`}>
-              {content}
-            </pre>
-          ) : (
-            <div className={`snippet-content ${textContentClass}`}>
-              {content}
-            </div>
-          )
+        return (
+          <CardLayout>
+            {hasNewlines ? (
+              <pre className={`snippet-content ${textContentClass}`}>
+                {content}
+              </pre>
+            ) : (
+              <div className={`snippet-content ${textContentClass}`}>
+                {content}
+              </div>
+            )}
+          </CardLayout>
         );
       
       case 'message':
-        return renderCard(
-          <div className={`snippet-content message`}>
-            {content}
-          </div>
+        return (
+          <CardLayout>
+            <div className={`snippet-content message`}>
+              {content}
+            </div>
+          </CardLayout>
         );
       
       case 'quote':
-        return renderCard(
-          <blockquote className="snippet-content quote">
-            {content}
-          </blockquote>
+        return (
+          <CardLayout>
+            <blockquote className="snippet-content quote">
+              {content}
+            </blockquote>
+          </CardLayout>
         );
 
       case 'link':
-        return renderCard(
-          <a href={content} className="snippet-content link" target="_blank" rel="noopener noreferrer">
-            {(snippet as LinkSnippet).title || content}
-          </a>
+        return (
+          <CardLayout>
+            <a href={content} className="snippet-content link" target="_blank" rel="noopener noreferrer">
+              {(snippet as LinkSnippet).title || content}
+            </a>
+          </CardLayout>
         );
     }
   };
+
+  console.log('[Render] capturedSnippets state before render:', capturedSnippets);
 
   return (
     <div className="main-screen">
@@ -901,6 +1163,23 @@ Your answer (ONLY a language name or "none"):`
           <polyline points="12 19 5 12 12 5"></polyline>
         </svg>
       </button>
+
+      {/* Add Delete All Button */} 
+      {capturedSnippets.length > 0 && !isDemoMode && (
+        <button 
+          className="delete-all-btn"
+          onClick={handleDeleteAll}
+          title="Delete all captured snippets"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 6h18"></path>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            <line x1="10" y1="11" x2="10" y2="17"></line>
+            <line x1="14" y1="11" x2="14" y2="17"></line>
+          </svg>
+          Clear All
+        </button>
+      )}
 
       {isDemoMode ? (
         <div className="demo-mode-container">

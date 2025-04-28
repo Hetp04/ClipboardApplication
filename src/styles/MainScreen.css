@@ -15,31 +15,41 @@
   position: absolute;
   top: 20px;
   left: 20px;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background-color: white; /* White background */
-  border: 1px solid #e0e0e0; /* Light gray border */
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  background: none;
+  border: none;
   cursor: pointer;
-  padding: 0;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05); /* Subtle shadow */
-  z-index: 10; /* Ensure it's above other elements */
+  padding: 5px;
+  color: #888;
 }
 
 .back-button:hover {
-  background-color: #f0f0f0; /* Light gray hover */
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.07);
+  color: #333;
 }
 
-.back-button svg {
-  color: #4B5563; /* Dark slate gray icon */
-  width: 20px;
-  height: 20px;
+.delete-all-btn {
+  position: absolute;
+  top: 20px;
+  right: 20px; /* Position top right */
+  background-color: #f8d7da; /* Light red background */
+  color: #721c24; /* Dark red text */
+  border: 1px solid #f5c6cb; /* Red border */
+  border-radius: 5px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.85em;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.delete-all-btn:hover {
+  background-color: #f5c6cb;
+  border-color: #f1b0b7;
+}
+
+.delete-all-btn svg {
+  stroke: #721c24; /* Match text color */
 }
 
 .main-screen::before {
@@ -338,11 +348,10 @@
 }
 
 .snippet-content.link {
-  color: #2563eb;
+  color: #0066cc; /* Standard link blue */
   text-decoration: none;
-  display: block;
-  font-size: 0.9rem;
-  word-break: break-all;
+  transition: color 0.2s ease;
+  overflow-wrap: break-word; /* Allow long URLs to wrap */
 }
 
 .snippet-content.link:hover {

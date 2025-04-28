@@ -7,9 +7,22 @@ use serde::{Serialize, Deserialize};
 use std::process::Command;
 use base64::{Engine as _, engine::general_purpose};
 use std::path::Path;
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 // Cache for the last clipboard value to avoid emitting duplicate events
 static CLIPBOARD_CACHE: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new(String::new()));
+
+// Cache for app icons to avoid re-extracting icons for already seen apps
+static APP_ICON_CACHE: Lazy<Mutex<HashMap<String, CachedIcon>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+// Cache for the last valid source app information
+static LAST_VALID_SOURCE_APP: Lazy<Mutex<Option<SourceApp>>> = Lazy::new(|| Mutex::new(None));
+
+struct CachedIcon {
+    base64_icon: Option<String>,
+    timestamp: Instant,
+}
 
 // Structure for clipboard data with source app info
 #[derive(Clone, Serialize, Deserialize)]
@@ -33,64 +46,234 @@ fn greet(name: &str) -> String {
 #[cfg(target_os = "macos")]
 fn get_frontmost_app() -> SourceApp {
     let app_name = get_frontmost_app_name_macos().unwrap_or_else(|| "App".to_string());
+    
+    // Check if the app is our own app (briefcase)
+    if app_name.to_lowercase() == "briefcase" {
+        // Use the last valid source app if available
+        let last_valid = LAST_VALID_SOURCE_APP.lock().unwrap();
+        if let Some(last_app) = last_valid.clone() {
+            // Use the last valid source app instead of our own app
+            eprintln!("[Source App] Detected own app, using previous source app: {}", last_app.name);
+            return last_app;
+        }
+    }
+    
+    // Check if we have a cached icon for this app
+    {
+        let cache = APP_ICON_CACHE.lock().unwrap();
+        if let Some(cached) = cache.get(&app_name) {
+            // Use cached icon if it's less than 1 hour old
+            if cached.timestamp.elapsed() < Duration::from_secs(3600) {
+                let source_app = SourceApp { 
+                    name: app_name.clone(),
+                    base64_icon: cached.base64_icon.clone()
+                };
+                
+                // Store this as a valid source app if it's not our own app
+                if app_name.to_lowercase() != "briefcase" {
+                    let mut last_valid = LAST_VALID_SOURCE_APP.lock().unwrap();
+                    *last_valid = Some(source_app.clone());
+                }
+                
+                return source_app;
+            }
+        }
+    }
+    
     let base64_icon = get_app_icon_macos(&app_name);
     
-    SourceApp { 
-        name: app_name,
-        base64_icon 
+    // Cache the icon result
+    {
+        let mut cache = APP_ICON_CACHE.lock().unwrap();
+        cache.insert(app_name.clone(), CachedIcon {
+            base64_icon: base64_icon.clone(),
+            timestamp: Instant::now(),
+        });
     }
+    
+    let source_app = SourceApp { 
+        name: app_name.clone(),
+        base64_icon 
+    };
+    
+    // Store this as a valid source app if it's not our own app
+    if app_name.to_lowercase() != "briefcase" {
+        let mut last_valid = LAST_VALID_SOURCE_APP.lock().unwrap();
+        *last_valid = Some(source_app.clone());
+    }
+    
+    source_app
 }
 
 // Get just the name using osascript (was reliable)
 #[cfg(target_os = "macos")]
 fn get_frontmost_app_name_macos() -> Option<String> {
+    eprintln!("[Icon Debug] Trying to get frontmost app name...");
+    // First try with System Events
     match Command::new("osascript")
         .arg("-e")
         .arg("tell application \"System Events\" to name of first application process whose frontmost is true")
         .output() 
     {
-        Ok(output) if output.status.success() => {
+        Ok(output) => {
             let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !name.is_empty() { Some(name) } else { None }
+            eprintln!("[Icon Debug] Method 1 (System Events Process Name) Output: {:?}, Status: {:?}, Name: '{}'", output.stdout, output.status, name);
+            if output.status.success() && !name.is_empty() { return Some(name); }
         },
-        _ => None
+        Err(e) => eprintln!("[Icon Debug] Method 1 Error: {}", e)
     }
+    
+    // Fallback method using AppleScript
+    match Command::new("osascript")
+        .arg("-e")
+        .arg("tell application \"System Events\" to tell (first process whose frontmost is true) to return name")
+        .output()
+    {
+        Ok(output) => {
+            let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            eprintln!("[Icon Debug] Method 2 (System Events Return Name) Output: {:?}, Status: {:?}, Name: '{}'", output.stdout, output.status, name);
+            if output.status.success() && !name.is_empty() { return Some(name); }
+        },
+        Err(e) => eprintln!("[Icon Debug] Method 2 Error: {}", e)
+    }
+    
+    // Another fallback using the frontmost app's title (less reliable for actual app name)
+    match Command::new("osascript")
+        .arg("-e")
+        .arg("tell application \"System Events\" to tell (first process whose frontmost is true) to get name")
+        .output()
+    {
+        Ok(output) => {
+            let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            eprintln!("[Icon Debug] Method 3 (System Events Get Name) Output: {:?}, Status: {:?}, Name: '{}'", output.stdout, output.status, name);
+            if output.status.success() && !name.is_empty() { return Some(name); }
+        },
+        Err(e) => eprintln!("[Icon Debug] Method 3 Error: {}", e)
+    }
+    eprintln!("[Icon Debug] All methods failed to get frontmost app name.");
+    None
 }
 
 // Get icon using mdfind + sips (more stable than objc)
 #[cfg(target_os = "macos")]
 fn get_app_icon_macos(app_name: &str) -> Option<String> {
-    // 1. Find the application path using mdfind
-    let app_path_output = Command::new("mdfind")
-        .arg(format!("kMDItemKind == 'Application' && kMDItemFSName == '{}.app'", app_name))
-        .output();
-
-    // Make app_path mutable
-    let mut app_path = match app_path_output {
-        Ok(output) if output.status.success() => {
-            let path_str = String::from_utf8_lossy(&output.stdout);
-            // Take the first line if multiple results exist
-            path_str.lines().next().map(|s| s.trim().to_string())
-        },
-        _ => None,
-    };
-
+    // 1. Make sure we have a proper app name first
+    eprintln!("[Icon Debug] Getting icon for app name: '{}'", app_name);
+    let app_name = app_name.trim();
+    if app_name.is_empty() {
+        eprintln!("[Icon Debug] App name is empty, returning None.");
+        return None;
+    }
+    
+    // 2. Find the application path using mdfind with multiple strategies
+    let mut app_path: Option<String> = None;
+    
+    // Strategy 1: Try exact app name
     if app_path.is_none() {
-        // Fallback: try finding in /Applications or /System/Applications
+        let mdfind_cmd = format!("kMDItemKind == 'Application' && kMDItemFSName == '{}.app'", app_name);
+        eprintln!("[Icon Debug] Running mdfind with query: {}", mdfind_cmd);
+        let path_output = Command::new("mdfind")
+            .arg(&mdfind_cmd)
+            .output();
+            
+        if let Ok(output) = path_output {
+            if output.status.success() {
+                let path_str = String::from_utf8_lossy(&output.stdout);
+                app_path = path_str.lines().next().map(|s| s.trim().to_string());
+                eprintln!("[Icon Debug] Strategy 1: exact name match result: {:?}", app_path);
+            }
+        }
+    }
+    
+    // Strategy 2: Try with spaces removed
+    if app_path.is_none() && app_name.contains(' ') {
+        let alt_app_name = app_name.replace(' ', "");
+        let alt_mdfind_cmd = format!("kMDItemKind == 'Application' && kMDItemFSName == '{}.app'", alt_app_name);
+        eprintln!("[Icon Debug] Strategy 2: trying with spaces removed: {}", alt_app_name);
+        let alt_path_output = Command::new("mdfind")
+            .arg(&alt_mdfind_cmd)
+            .output();
+        
+        if let Ok(output) = alt_path_output {
+            if output.status.success() {
+                let path_str = String::from_utf8_lossy(&output.stdout);
+                app_path = path_str.lines().next().map(|s| s.trim().to_string());
+                eprintln!("[Icon Debug] Strategy 2 result: {:?}", app_path);
+            }
+        }
+    }
+    
+    // Strategy 3: Try fuzzy match for the app name
+    if app_path.is_none() {
+        let fuzzy_mdfind_cmd = format!("kMDItemKind == 'Application' && kMDItemDisplayName == '*{}*'c", app_name);
+        eprintln!("[Icon Debug] Strategy 3: trying fuzzy match: {}", fuzzy_mdfind_cmd);
+        let fuzzy_path_output = Command::new("mdfind")
+            .arg(&fuzzy_mdfind_cmd)
+            .output();
+            
+        if let Ok(output) = fuzzy_path_output {
+            if output.status.success() {
+                let path_str = String::from_utf8_lossy(&output.stdout);
+                app_path = path_str.lines().next().map(|s| s.trim().to_string());
+                eprintln!("[Icon Debug] Strategy 3 result: {:?}", app_path);
+            }
+        }
+    }
+    
+    // Strategy 4: Check common directories
+    if app_path.is_none() {
+        eprintln!("[Icon Debug] Strategy 4: checking common paths...");
         let common_paths = [
             format!("/Applications/{}.app", app_name),
             format!("/System/Applications/{}.app", app_name),
             format!("/System/Applications/Utilities/{}.app", app_name),
             format!("/Applications/Utilities/{}.app", app_name),
+            // Additional common variants
+            format!("/Applications/{}.app", app_name.replace(' ', "")),
+            format!("/System/Applications/{}.app", app_name.replace(' ', "")),
         ];
-        // Now this assignment is valid because app_path is mutable
         app_path = common_paths.iter().find(|p| Path::new(p).exists()).cloned();
+        eprintln!("[Icon Debug] Strategy 4 result: {:?}", app_path);
     }
     
+    // Strategy 5: Try to get the app bundle for standard apps
+    if app_path.is_none() {
+        // Known app name mappings
+        let known_app_paths = [
+            ("Google Chrome", "/Applications/Google Chrome.app"),
+            ("Chrome", "/Applications/Google Chrome.app"),
+            ("Safari", "/Applications/Safari.app"),
+            ("Firefox", "/Applications/Firefox.app"),
+            ("Terminal", "/System/Applications/Utilities/Terminal.app"),
+            ("Finder", "/System/Library/CoreServices/Finder.app"),
+            ("Mail", "/System/Applications/Mail.app"),
+            ("Messages", "/System/Applications/Messages.app"),
+            ("Notes", "/System/Applications/Notes.app"),
+            ("TextEdit", "/System/Applications/TextEdit.app"),
+            ("Xcode", "/Applications/Xcode.app"),
+            ("Visual Studio Code", "/Applications/Visual Studio Code.app"),
+            ("VS Code", "/Applications/Visual Studio Code.app"),
+            ("Code", "/Applications/Visual Studio Code.app"),
+            ("Microsoft Edge", "/Applications/Microsoft Edge.app"),
+            ("Edge", "/Applications/Microsoft Edge.app"),
+            // Add more common apps as needed
+        ];
+        
+        for (known_name, known_path) in known_app_paths {
+            if app_name.to_lowercase() == known_name.to_lowercase() && Path::new(known_path).exists() {
+                app_path = Some(known_path.to_string());
+                eprintln!("[Icon Debug] Strategy 5: Found known app mapping for {}: {}", app_name, known_path);
+                break;
+            }
+        }
+    }
+    
+    // 5. Process the app path to get the icon
     if let Some(path) = app_path {
-        // 2. Try multiple icon sources in order of preference
+        eprintln!("[Icon Debug] Processing app path: {}", path);
         let temp_dir = std::env::temp_dir();
         let temp_icon_path = temp_dir.join(format!("{}.png", app_name.replace('/', "_").replace(' ', "_")));
+        eprintln!("[Icon Debug] Temp PNG path: {:?}", temp_icon_path);
         
         // List of potential icon locations to try
         let icon_paths = [
@@ -98,10 +281,17 @@ fn get_app_icon_macos(app_name: &str) -> Option<String> {
             format!("{}/Contents/Resources/AppIcon.icns", path),
             format!("{}/Contents/Resources/icon.icns", path),
             format!("{}/Contents/Resources/app.icns", path),
+            format!("{}/Contents/Resources/{}.icns", path, app_name.replace(' ', "")),
+            format!("{}/Contents/Resources/Application.icns", path),
+            // Add more icon path patterns
+            format!("{}/Contents/Resources/AppIcon.png", path),
+            format!("{}/Contents/Resources/Icon.png", path),
         ];
         
+        let mut found_icon_via_sips = false;
         for icon_path in &icon_paths {
             if Path::new(icon_path).exists() {
+                eprintln!("[Icon Debug] Found icon at path: {}", icon_path);
                 let sips_output = Command::new("sips")
                     .arg("-s")
                     .arg("format")
@@ -111,60 +301,73 @@ fn get_app_icon_macos(app_name: &str) -> Option<String> {
                     .arg(&temp_icon_path)
                     .output();
                 
-                if sips_output.is_ok() && sips_output.as_ref().unwrap().status.success() {
-                    if let Ok(icon_data) = std::fs::read(&temp_icon_path) {
-                        let base64_icon = general_purpose::STANDARD.encode(&icon_data);
-                        let data_url = format!("data:image/png;base64,{}", base64_icon);
-                        // Clean up temp file
-                        let _ = std::fs::remove_file(&temp_icon_path);
-                        return Some(data_url);
+                match sips_output {
+                    Ok(output) if output.status.success() => {
+                        match std::fs::read(&temp_icon_path) {
+                            Ok(icon_data) => {
+                                let base64_icon = general_purpose::STANDARD.encode(&icon_data);
+                                let data_url = format!("data:image/png;base64,{}", base64_icon);
+                                let _ = std::fs::remove_file(&temp_icon_path); // Clean up
+                                found_icon_via_sips = true;
+                                return Some(data_url);
+                            }
+                            Err(e) => {
+                                eprintln!("[Icon Debug] sips succeeded, but failed to read temp file: {}", e);
+                            }
+                        }
                     }
+                    _ => { } // Try next icon path on failure
                 }
             }
         }
-        
-        // Fallback: Use macOS utility to get generic app icon if we couldn't find a specific one
-        let script = format!(
-            "tell application \"Finder\"
-                try
-                    set appFile to POSIX file \"{}\" as alias
-                    set appIcon to the icon of appFile
-                    set tmpFolder to path to temporary items as string
-                    set tmpFile to tmpFolder & \"{}.png\"
-                    set fileRef to (open for access POSIX path of tmpFile with write permission)
-                    set iconData to data of (appIcon as picture)
-                    write iconData to fileRef
-                    close access fileRef
-                    return POSIX path of tmpFile
-                on error
-                    return \"\"
-                end try
-            end tell", path, app_name.replace('/', "_").replace(' ', "_")
-        );
-        
-        let output = Command::new("osascript")
-            .arg("-e")
-            .arg(&script)
-            .output();
+
+        if !found_icon_via_sips {
+            // FINAL FALLBACK: Use macOS Finder to get icon (most reliable but slower)
+            let script = format!(
+                "tell application \"Finder\"
+                    try
+                        set appFile to POSIX file \"{}\" as alias
+                        set appIcon to the icon of appFile
+                        set tmpFolder to path to temporary items as string
+                        set tmpFile to tmpFolder & \"{}.png\"
+                        set fileRef to (open for access POSIX path of tmpFile with write permission)
+                        set iconData to data of (appIcon as picture)
+                        write iconData to fileRef
+                        close access fileRef
+                        return POSIX path of tmpFile
+                    on error
+                        return \"\"
+                    end try
+                end tell", path, app_name.replace('/', "_").replace(' ', "_")
+            );
             
-        if let Ok(output) = output {
-            if output.status.success() {
-                let tmp_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !tmp_path.is_empty() && Path::new(&tmp_path).exists() {
-                    if let Ok(icon_data) = std::fs::read(&tmp_path) {
-                        let base64_icon = general_purpose::STANDARD.encode(&icon_data);
-                        let data_url = format!("data:image/png;base64,{}", base64_icon);
-                        // Clean up temp file
-                        let _ = std::fs::remove_file(&tmp_path);
-                        return Some(data_url);
+            let output = Command::new("osascript")
+                .arg("-e")
+                .arg(&script)
+                .output();
+                
+            match output {
+                Ok(output) if output.status.success() => {
+                    let tmp_path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !tmp_path_str.is_empty() && Path::new(&tmp_path_str).exists() {
+                        match std::fs::read(&tmp_path_str) {
+                            Ok(icon_data) => {
+                                let base64_icon = general_purpose::STANDARD.encode(&icon_data);
+                                let data_url = format!("data:image/png;base64,{}", base64_icon);
+                                let _ = std::fs::remove_file(&tmp_path_str); // Clean up
+                                return Some(data_url);
+                            }
+                            Err(_) => {
+                                let _ = std::fs::remove_file(&tmp_path_str);
+                            }
+                        }
                     }
-                    // Clean up even on error
-                    let _ = std::fs::remove_file(&tmp_path);
                 }
+                _ => { } // Continue to next fallback
             }
         }
         
-        // Clean up temp file even on failure
+        // Clean up temp file
         let _ = std::fs::remove_file(&temp_icon_path);
     }
     
@@ -178,11 +381,27 @@ fn get_frontmost_app() -> SourceApp {
     
     match app_info {
         Some((name, exe_path)) => {
-            let base64_icon = get_app_icon_windows(&exe_path);
-            SourceApp { 
-                name,
-                base64_icon 
+            // Check if the app is our own app
+            if name.to_lowercase() == "briefcase" {
+                // Use the last valid source app if available
+                let last_valid = LAST_VALID_SOURCE_APP.lock().unwrap();
+                if let Some(last_app) = last_valid.clone() {
+                    // Use the last valid source app instead of our own app
+                    eprintln!("[Source App] Detected own app, using previous source app: {}", last_app.name);
+                    return last_app;
+                }
             }
+            
+            let base64_icon = get_app_icon_windows(&exe_path);
+            let source_app = SourceApp { name, base64_icon };
+            
+            // Store this as a valid source app if it's not our own app
+            if source_app.name.to_lowercase() != "briefcase" {
+                let mut last_valid = LAST_VALID_SOURCE_APP.lock().unwrap();
+                *last_valid = Some(source_app.clone());
+            }
+            
+            source_app
         },
         None => SourceApp { 
             name: "App".to_string(),
@@ -193,60 +412,96 @@ fn get_frontmost_app() -> SourceApp {
 
 #[cfg(target_os = "windows")]
 fn get_frontmost_app_win32() -> Option<(String, String)> {
-    use std::ffi::{OsString, c_void};
-    use std::os::windows::ffi::OsStringExt;
+    use std::ffi::{OsString, c_void, OsStr};
+    use std::os::windows::ffi::{OsStringExt, OsStrExt};
     use windows_sys::Win32::Foundation::{HWND, CloseHandle, MAX_PATH};
     use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
     use windows_sys::Win32::System::Threading::{OpenProcess, GetWindowThreadProcessId, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
     use windows_sys::Win32::System::ProcessStatus::K32GetModuleFileNameExW;
-    
+    use windows_sys::Win32::UI::Shell::{SHGetFileInfoW, SHFILEINFOW, SHGFI_DISPLAYNAME, SHGFI_USEFILEATTRIBUTES};
+    use std::mem;
+
+    eprintln!("[Win Icon Debug] Getting frontmost window...");
     unsafe {
         let hwnd = GetForegroundWindow();
-        if hwnd == 0 { return None; }
+        if hwnd == 0 { 
+            eprintln!("[Win Icon Debug] GetForegroundWindow failed or returned null.");
+            return None; 
+        }
+        eprintln!("[Win Icon Debug] Got HWND: {}", hwnd);
         
         let mut process_id: u32 = 0;
         GetWindowThreadProcessId(hwnd, &mut process_id);
-        if process_id == 0 { return None; }
+        if process_id == 0 { 
+            eprintln!("[Win Icon Debug] GetWindowThreadProcessId failed.");
+            return None; 
+        }
+         eprintln!("[Win Icon Debug] Got Process ID: {}", process_id);
         
         let process_handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, process_id);
-        if process_handle == 0 { return None; }
+        if process_handle == 0 { 
+            eprintln!("[Win Icon Debug] OpenProcess failed.");
+            return None; 
+        }
+        eprintln!("[Win Icon Debug] Got Process Handle: {}", process_handle);
         
         let mut buffer = [0u16; MAX_PATH as usize];
         let length = K32GetModuleFileNameExW(process_handle, 0 as *mut c_void, buffer.as_mut_ptr(), buffer.len() as u32);
         
         CloseHandle(process_handle);
-        if length == 0 { return None; }
+        if length == 0 { 
+            eprintln!("[Win Icon Debug] K32GetModuleFileNameExW failed.");
+            return None; 
+        }
         
         let exe_path_os = OsString::from_wide(&buffer[0..length as usize]);
         let exe_path = exe_path_os.to_string_lossy().into_owned();
+        eprintln!("[Win Icon Debug] Got exe path: {}", exe_path);
         
-        let exe_name = std::path::Path::new(&exe_path)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("App")
-            .to_string();
+        // Attempt to get the Shell's display name for the executable
+        let mut display_name = String::new();
+        let mut path_utf16: Vec<u16> = OsStr::new(&exe_path).encode_wide().collect();
+        path_utf16.push(0); // Null terminate
+
+        let mut sfi: SHFILEINFOW = mem::zeroed();
+        let flags = SHGFI_DISPLAYNAME | SHGFI_USEFILEATTRIBUTES; // Use SHGFI_USEFILEATTRIBUTES for potentially better results
+        let ret = SHGetFileInfoW(
+            path_utf16.as_ptr(),
+            0,
+            &mut sfi,
+            mem::size_of::<SHFILEINFOW>() as u32,
+            flags,
+        );
+
+        if ret != 0 {
+            let name_slice = &sfi.szDisplayName[..];
+            if let Some(null_pos) = name_slice.iter().position(|&c| c == 0) {
+                 display_name = OsString::from_wide(&name_slice[..null_pos]).to_string_lossy().into_owned();
+                 eprintln!("[Win Icon Debug] Got display name via SHGetFileInfoW: '{}'", display_name);
+            } else {
+                eprintln!("[Win Icon Debug] SHGetFileInfoW display name wasn't null terminated? Using fallback.");
+            }
+        } else {
+             eprintln!("[Win Icon Debug] SHGetFileInfoW failed to get display name.");
+        }
+
+        // Fallback to deriving name from path if SHGetFileInfoW failed or returned empty
+        if display_name.is_empty() {
+             eprintln!("[Win Icon Debug] Using fallback name derived from exe path.");
+             display_name = std::path::Path::new(&exe_path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("App") // Default if stem is weird
+                .to_string();
+        }
         
-        let friendly_name = match exe_name.to_lowercase().as_str() {
-            "chrome" => "Google Chrome", "msedge" => "Microsoft Edge", "firefox" => "Mozilla Firefox",
-            "safari" => "Safari", "notepad" => "Notepad", "code" => "Visual Studio Code",
-            "explorer" => "File Explorer", "cmd" => "Command Prompt", "powershell" => "PowerShell",
-            "winword" => "Microsoft Word", "excel" => "Microsoft Excel", "outlook" => "Microsoft Outlook",
-            "teams" => "Microsoft Teams", "slack" => "Slack", "discord" => "Discord",
-            "iexplore" => "Internet Explorer", "mspaint" => "Paint", "photoshop" => "Adobe Photoshop",
-            "illustrator" => "Adobe Illustrator", "acrobat" => "Adobe Acrobat",
-            "rider64" => "JetBrains Rider", "idea64" => "IntelliJ IDEA", "pycharm64" => "PyCharm",
-            "webstorm64" => "WebStorm", "notepad++" => "Notepad++", "spotify" => "Spotify",
-            "vlc" => "VLC Media Player",
-            _ => &exe_name,
-        };
-        
-        Some((friendly_name.to_string(), exe_path))
+        Some((display_name, exe_path))
     }
 }
 
 #[cfg(target_os = "windows")]
 fn get_app_icon_windows(exe_path: &str) -> Option<String> {
-    use windows_sys::Win32::UI::Shell::{SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON, ExtractIconExW};
+    use windows_sys::Win32::UI::Shell::{SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON, SHGFI_SYSICONINDEX, SHGetImageList, ImageList_GetIcon, SHIL_LARGE};
     use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, ICONINFO};
     use windows_sys::Win32::Graphics::Gdi::{GetBitmapBits, GetObjectW, DeleteObject, BITMAP};
     use std::{mem, ptr, slice};
@@ -255,72 +510,125 @@ fn get_app_icon_windows(exe_path: &str) -> Option<String> {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
 
+    eprintln!("[Win Icon Debug] Attempting to get icon for path: {}", exe_path);
     unsafe {
         let mut path_utf16: Vec<u16> = OsStr::new(exe_path).encode_wide().collect();
         path_utf16.push(0); // Null terminate
 
-        // Method 1: Try SHGetFileInfoW first (most reliable for .exe files)
-        let mut sfi: SHFILEINFOW = mem::zeroed();
-        let flags = SHGFI_ICON | SHGFI_LARGEICON;
-        
-        let file_info_res = SHGetFileInfoW(
+        let mut hicon: windows_sys::Win32::Foundation::HICON = 0;
+
+        // --- Method 1: System Image List (Modern approach) ---
+        eprintln!("[Win Icon Debug] Trying Method 1: System Image List via SHGetFileInfoW(SHGFI_SYSICONINDEX)...");
+        let mut sfi_sys: SHFILEINFOW = mem::zeroed();
+        let flags_sys = SHGFI_SYSICONINDEX; 
+        let file_info_res_sys = SHGetFileInfoW(
             path_utf16.as_ptr(),
             0,
-            &mut sfi,
+            &mut sfi_sys,
             mem::size_of::<SHFILEINFOW>() as u32,
-            flags,
+            flags_sys,
         );
 
-        let mut hicon = 0;
-        if file_info_res != 0 && sfi.hIcon != 0 { 
-            hicon = sfi.hIcon;
+        if file_info_res_sys != 0 {
+            let icon_index = sfi_sys.iIcon;
+            eprintln!("[Win Icon Debug] SHGetFileInfoW(SHGFI_SYSICONINDEX) succeeded. Icon Index: {}", icon_index);
+            let mut himagelist: windows_sys::Win32::Foundation::HMODULE = 0; // HMODULE used for HIMAGELIST here
+            // Try getting large image list first, fallback to small if needed
+            if SHGetImageList(SHIL_LARGE, &windows_sys::Win32::UI::Shell::IID_IImageList, &mut himagelist as *mut _ as *mut *mut std::ffi::c_void) == windows_sys::Win32::Foundation::S_OK {
+                 eprintln!("[Win Icon Debug] Got system image list (SHIL_LARGE).");
+                 hicon = ImageList_GetIcon(himagelist, icon_index, 0); // uFlags = ILD_NORMAL = 0
+                 if hicon != 0 {
+                     eprintln!("[Win Icon Debug] Successfully extracted HICON from SHIL_LARGE image list.");
+                 } else {
+                     eprintln!("[Win Icon Debug] Failed to extract HICON from SHIL_LARGE list (ImageList_GetIcon returned 0).");
+                 }
+            } else {
+                 eprintln!("[Win Icon Debug] Failed to get system image list (SHIL_LARGE).");
+            }
         } else {
-            // Method 2: Fallback to ExtractIconExW
-            let mut large_icon = 0;
-            let mut small_icon = 0;
-            let icon_count = ExtractIconExW(path_utf16.as_ptr(), 0, &mut large_icon, &mut small_icon, 1);
-            
-            if icon_count > 0 && large_icon != 0 {
-                hicon = large_icon;
-                if small_icon != 0 {
-                    DestroyIcon(small_icon); // Clean up the small icon we don't need
-                }
+             eprintln!("[Win Icon Debug] SHGetFileInfoW(SHGFI_SYSICONINDEX) failed.");
+        }
+
+        // --- Method 2: Direct Icon via SHGetFileInfoW (Original fallback) ---
+        if hicon == 0 { 
+            eprintln!("[Win Icon Debug] Method 1 failed. Trying Method 2: Direct HICON via SHGetFileInfoW(SHGFI_ICON)...");
+            let mut sfi_direct: SHFILEINFOW = mem::zeroed();
+            let flags_direct = SHGFI_ICON | SHGFI_LARGEICON;
+            let file_info_res_direct = SHGetFileInfoW(
+                path_utf16.as_ptr(),
+                0,
+                &mut sfi_direct,
+                mem::size_of::<SHFILEINFOW>() as u32,
+                flags_direct,
+            );
+            if file_info_res_direct != 0 && sfi_direct.hIcon != 0 { 
+                hicon = sfi_direct.hIcon;
+                eprintln!("[Win Icon Debug] Method 2 succeeded. Got direct HICON: {}", hicon);
+            } else {
+                 eprintln!("[Win Icon Debug] Method 2 failed (SHGetFileInfoW(SHGFI_ICON) returned 0 or null HICON).");
             }
         }
 
-        // If we didn't get an icon through either method, return None
+        // --- Method 3: ExtractIconExW (Final fallback) ---
+        // Note: ExtractIconExW is generally less reliable for modern apps than SHGetFileInfoW
+        // We might even consider removing it if Method 1/2 are robust enough.
+        // Keeping it for now for maximum compatibility.
         if hicon == 0 {
+            eprintln!("[Win Icon Debug] Methods 1 & 2 failed. Trying Method 3: ExtractIconExW...");
+            let mut large_icon = 0;
+            let mut small_icon = 0; // We don't use the small one
+            let icon_count = windows_sys::Win32::UI::Shell::ExtractIconExW(path_utf16.as_ptr(), 0, &mut large_icon, &mut small_icon, 1);
+            
+            if icon_count > 0 && large_icon != 0 {
+                hicon = large_icon;
+                eprintln!("[Win Icon Debug] Method 3 succeeded. Got HICON via ExtractIconExW: {}", hicon);
+                if small_icon != 0 {
+                    DestroyIcon(small_icon); // Clean up the small icon we don't need
+                }
+            } else {
+                 eprintln!("[Win Icon Debug] Method 3 failed (ExtractIconExW returned count {} or null large_icon).", icon_count);
+            }
+        }
+
+        // --- Process HICON if obtained ---
+        if hicon == 0 {
+            eprintln!("[Win Icon Debug] All methods failed to obtain an HICON. Returning None.");
             return None;
         }
+        eprintln!("[Win Icon Debug] Processing obtained HICON: {}", hicon);
 
         // Extract bitmap from the icon
         let mut icon_info: ICONINFO = mem::zeroed();
         if GetIconInfo(hicon, &mut icon_info) == 0 {
+            eprintln!("[Win Icon Debug] GetIconInfo failed for HICON: {}", hicon);
             DestroyIcon(hicon);
             return None;
         }
+        eprintln!("[Win Icon Debug] GetIconInfo succeeded. Color bitmap: {}, Mask bitmap: {}", icon_info.hbmColor, icon_info.hbmMask);
         
         // The bitmap handles we MUST release
         let hbm_color = icon_info.hbmColor;
         let hbm_mask = icon_info.hbmMask;
 
-        // We'll try to use color bitmap first, mask as fallback
-        let mut use_color = hbm_color != 0;
-        let hbm = if use_color { hbm_color } else { hbm_mask };
+        // We prefer the color bitmap; mask is usually monochrome
+        let hbm_to_use = if hbm_color != 0 { hbm_color } else { hbm_mask };
+        let is_monochrome = hbm_color == 0 && hbm_mask != 0;
         
-        if hbm == 0 {
+        if hbm_to_use == 0 {
+             eprintln!("[Win Icon Debug] Both color and mask bitmaps were null.");
             DestroyIcon(hicon); 
             return None;
         }
         
         let mut bmp: BITMAP = mem::zeroed();
         let res = GetObjectW(
-            hbm,
+            hbm_to_use,
             mem::size_of::<BITMAP>() as i32,
             &mut bmp as *mut BITMAP as *mut _,
         );
 
         if res == 0 {
+            eprintln!("[Win Icon Debug] GetObjectW failed for bitmap handle: {}", hbm_to_use);
             DestroyIcon(hicon);
             if hbm_color != 0 { DeleteObject(hbm_color); }
             if hbm_mask != 0 { DeleteObject(hbm_mask); }
@@ -330,23 +638,23 @@ fn get_app_icon_windows(exe_path: &str) -> Option<String> {
         let width = bmp.bmWidth as u32;
         let height = bmp.bmHeight as u32;
         let bits_per_pixel = bmp.bmBitsPixel as u32;
+         eprintln!("[Win Icon Debug] Bitmap properties: Width={}, Height={}, BPP={}", width, height, bits_per_pixel);
 
         // Ensure width and height are reasonable
         if width == 0 || height == 0 || width > 2048 || height > 2048 { 
+             eprintln!("[Win Icon Debug] Invalid bitmap dimensions.");
              DestroyIcon(hicon);
              if hbm_color != 0 { DeleteObject(hbm_color); }
              if hbm_mask != 0 { DeleteObject(hbm_mask); }
              return None;
         }
 
-        // If we're using monochrome mask, we need special handling
-        if !use_color && bits_per_pixel == 1 {
-            // For mask bitmap, we need different handling as it's monochrome
-            // In a real app, we'd render this properly or use a fallback
-            // For simplicity, we'll just return None when this happens and let the app 
-            // display a default icon instead
+        // If we are forced to use the monochrome mask, it's difficult to render nicely.
+        // Return None for simplicity, letting the frontend handle a default.
+        if is_monochrome && bits_per_pixel == 1 {
+            eprintln!("[Win Icon Debug] Using monochrome mask (1bpp), which is not well-supported for direct PNG conversion. Returning None.");
             DestroyIcon(hicon);
-            if hbm_color != 0 { DeleteObject(hbm_color); }
+            // No need to DeleteObject hbm_color (it's 0), only hbm_mask
             if hbm_mask != 0 { DeleteObject(hbm_mask); }
             return None;
         }
@@ -354,6 +662,7 @@ fn get_app_icon_windows(exe_path: &str) -> Option<String> {
         let buffer_size = (width * height * bits_per_pixel / 8) as usize;
         // Additional sanity check for buffer size to prevent large allocations
         if buffer_size == 0 || buffer_size > 16 * 1024 * 1024 { 
+             eprintln!("[Win Icon Debug] Calculated buffer size is invalid or too large ({} bytes).", buffer_size);
              DestroyIcon(hicon);
              if hbm_color != 0 { DeleteObject(hbm_color); }
              if hbm_mask != 0 { DeleteObject(hbm_mask); }
@@ -361,24 +670,30 @@ fn get_app_icon_windows(exe_path: &str) -> Option<String> {
         }
         let mut buffer: Vec<u8> = vec![0; buffer_size];
         
-        let res = GetBitmapBits(hbm, buffer_size as i32, buffer.as_mut_ptr() as *mut _);
+        let res = GetBitmapBits(hbm_to_use, buffer_size as i32, buffer.as_mut_ptr() as *mut _);
         
-        // Clean up GDI objects *after* copying bits, but before returning on error
+        // Clean up GDI objects *after* copying bits, but before returning on error below
+        // The HICON should be destroyed regardless of whether it came from SHGetFileInfoW or ImageList_GetIcon
         DestroyIcon(hicon); 
+        // Only delete the bitmaps obtained from GetIconInfo
         if hbm_color != 0 { DeleteObject(hbm_color); }
         if hbm_mask != 0 { DeleteObject(hbm_mask); }
         
         if res == 0 {
+            eprintln!("[Win Icon Debug] GetBitmapBits failed.");
             return None;
         }
+        eprintln!("[Win Icon Debug] GetBitmapBits succeeded ({} bytes read). Converting to RGBA...", res);
 
         // Convert pixel data (likely BGRA or BGR) to RGBA
-        let img_buffer = match bits_per_pixel {
+        let img_buffer_result = match bits_per_pixel {
             32 => { // Assuming BGRA
+                 eprintln!("[Win Icon Debug] Processing 32bpp (BGRA -> RGBA)");
                  buffer.chunks_exact_mut(4).for_each(|chunk| chunk.swap(0, 2)); // BGRA -> RGBA
                  ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, buffer)
             }
             24 => { // Assuming BGR
+                 eprintln!("[Win Icon Debug] Processing 24bpp (BGR -> RGBA)");
                 let mut rgba_buffer = Vec::with_capacity((width * height * 4) as usize);
                 for chunk in buffer.chunks_exact(3) {
                     rgba_buffer.push(chunk[2]); // R
@@ -388,24 +703,38 @@ fn get_app_icon_windows(exe_path: &str) -> Option<String> {
                 }
                 ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, rgba_buffer)
             }
-            _ => return None // Don't support other formats for simplicity
+            _ => {
+                eprintln!("[Win Icon Debug] Unsupported bits per pixel: {}", bits_per_pixel);
+                None
+            } 
         }; 
 
         // Check if image buffer creation succeeded
-        let img_buffer = match img_buffer {
-            Some(buf) => buf,
-            None => return None, // from_raw can fail
+        let img_buffer = match img_buffer_result {
+            Some(buf) => {
+                eprintln!("[Win Icon Debug] Image buffer created successfully.");
+                buf
+            },
+            None => {
+                eprintln!("[Win Icon Debug] Failed to create image buffer from raw data.");
+                return None;
+            }
         };
 
         // Encode as PNG into memory
+        eprintln!("[Win Icon Debug] Encoding image buffer to PNG...");
         let mut png_buffer = Cursor::new(Vec::new());
         match img_buffer.write_to(&mut png_buffer, ImageOutputFormat::Png) {
             Ok(_) => {
                 let base64_icon = general_purpose::STANDARD.encode(png_buffer.get_ref());
                 let data_url = format!("data:image/png;base64,{}", base64_icon);
+                eprintln!("[Win Icon Debug] PNG encoding successful. Returning data URL ({} bytes).", data_url.len());
                 Some(data_url)
             },
-            Err(_) => None,
+            Err(e) => {
+                 eprintln!("[Win Icon Debug] Failed to encode image buffer to PNG: {}", e);
+                 None
+            }
         }
     }
 }
@@ -599,6 +928,14 @@ fn find_icon_file_path(icon_name: &str) -> Option<String> {
 // Default implementation for other platforms
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn get_frontmost_app() -> SourceApp {
+    // Try to use the last valid source app
+    {
+        let last_valid = LAST_VALID_SOURCE_APP.lock().unwrap();
+        if let Some(last_app) = last_valid.clone() {
+            return last_app;
+        }
+    }
+    
     SourceApp { 
         name: "App".to_string(),
         base64_icon: None
@@ -624,15 +961,29 @@ pub fn run() {
                 loop {
                     if let Ok(text) = clipboard.get_text() {
                         if text.is_empty() {
-                            tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+                            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                             continue;
                         }
                         
-                        let mut last_text = CLIPBOARD_CACHE.lock().unwrap();
-                        if *last_text != text {
-                            *last_text = text.clone();
+                        let needs_update;
+                        {
+                            // Scope for the mutex lock
+                            let mut last_text = CLIPBOARD_CACHE.lock().unwrap();
+                            if *last_text != text {
+                                *last_text = text.clone();
+                                needs_update = true;
+                            } else {
+                                needs_update = false;
+                            }
+                        }
+
+                        if needs_update {
+                            // Get source app before any delay to improve accuracy
+                            let source_app = get_frontmost_app();
                             
-                            let source_app = get_frontmost_app(); // This now gets name and icon
+                            // Add a small delay to ensure the app focus has stabilized
+                            // This helps when the user copies and immediately switches apps
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                             
                             // Debug logging for icon extraction
                             println!("Source app: {}", source_app.name);
@@ -656,7 +1007,7 @@ pub fn run() {
                             }
                         }
                     }
-                    tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                 }
             });
             Ok(())
