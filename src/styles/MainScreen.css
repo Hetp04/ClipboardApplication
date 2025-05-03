@@ -1,3 +1,39 @@
+/* Add container for the MainScreen with sidebar */
+.main-screen-container {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+.main-content {
+  flex: 1;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+}
+
+/* When sidebar is present */
+.main-content.sidebar-collapsed {
+  left: 70px;
+  margin-left: 0;
+}
+
+.main-content.sidebar-expanded {
+  left: 240px;
+  margin-left: 0;
+}
+
+/* When no sidebar is present, content takes full width */
+.main-content:not(.sidebar-collapsed):not(.sidebar-expanded) {
+  left: 0;
+  margin-left: 0;
+}
+
 .main-screen {
   width: 100%;
   height: 100vh;
@@ -8,22 +44,8 @@
   align-items: center;
   position: relative;
   overflow: hidden;
-  padding: 40px; /* Add padding to the screen itself */
-}
-
-.back-button {
-  position: absolute;
-  top: 20px;
-  left: 20px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 5px;
-  color: #888;
-}
-
-.back-button:hover {
-  color: #333;
+  padding: 40px;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .delete-all-btn {
@@ -177,19 +199,21 @@
 /* Snippets Container - Using column layout instead of grid */
 .snippets-container {
   display: flex;
-  gap: 28px; /* Slightly reduced from 30px */
+  gap: 28px;
   margin-bottom: 20px;
   width: 100%;
   overflow: visible;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .snippets-column {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 22px; /* Slightly reduced from 24px */
-  max-width: calc(50% - 14px); /* Adjusted based on new gap */
+  gap: 22px;
+  max-width: calc(50% - 14px);
   width: 100%;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Snippet wrapper */
@@ -198,6 +222,7 @@
   padding: 0;
   width: 100%;
   box-sizing: border-box;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Snippet Card Base Styles */
@@ -205,16 +230,16 @@
   background-color: white;
   border-radius: 10px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
-  padding: 19px; /* Slightly reduced from 20px */
+  padding: 19px;
   display: flex;
   flex-direction: column;
-  gap: 13px; /* Slightly reduced from 14px */
-  transition: all 0.2s ease;
+  gap: 13px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   border: 1px solid #e5e7eb;
   position: relative;
-  height: fit-content; /* Allow cards to size to their content */
-  width: 100%; /* Take full width of grid cell */
-  margin: 0; /* Ensure no unexpected margins */
+  height: fit-content;
+  width: 100%;
+  margin: 0;
 }
 
 .snippet-card:hover {
@@ -292,8 +317,12 @@
   max-height: none; /* Remove any max-height constraints */
   overflow: visible; /* Allow content to determine the height */
   padding: 3px; /* Slightly increased padding */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 0.95rem;
+  color: #1f2937;
 }
 
+/* Preserve code snippet styling */
 .snippet-content.code {
   background-color: #f8fafc;
   border-radius: 6px;
@@ -307,6 +336,19 @@
   height: auto; /* Allow code blocks to expand */
 }
 
+/* Preserve code-style class for any snippet type detected as code */
+.snippet-content.code-style {
+  background-color: #f8fafc;
+  border-radius: 6px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 0.85rem;
+  color: #334155;
+}
+
 /* Ensure pre elements don't add extra unnecessary height */
 .snippet-content pre {
   margin: 0;
@@ -314,37 +356,37 @@
   height: auto;
 }
 
+/* Remove redundant font specifications from specific snippet types to use the base style */
 .snippet-content.tweet {
-  font-size: 0.95rem;
-  color: #1f2937;
+  /* Keep specific properties, but use base font */
 }
 
 .snippet-content.quote {
   font-style: italic;
-  color: #4B5563;
   border-left: 3px solid #d1d5db;
   padding-left: 12px;
   margin: 0;
 }
 
 .snippet-content.text {
-  font-size: 0.95rem;
-  color: #1f2937;
+  /* Use base font style */
 }
 
-/* Add styling for multi-line text snippets */
+/* Modify text-multiline to maintain consistent font but preserve white-space behavior */
 .snippet-content.text-multiline {
   white-space: pre-wrap;
   overflow-x: auto;
-  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
-  font-size: 0.85rem;
-  line-height: 1.4;
-  background-color: #f8fafc;
-  border-radius: 6px;
-  padding: 12px;
-  color: #334155;
+  background-color: transparent;
+  border-radius: 0;
+  padding: 12px 0;
   margin: 0;
-  border: 1px solid #e2e8f0;
+  border: none;
+  /* Use base font unless it's also code-style */
+}
+
+.snippet-content.text-multiline:not(.code-style) {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 0.95rem;
 }
 
 .snippet-content.link {
@@ -352,6 +394,7 @@
   text-decoration: none;
   transition: color 0.2s ease;
   overflow-wrap: break-word; /* Allow long URLs to wrap */
+  /* Use base font style */
 }
 
 .snippet-content.link:hover {
@@ -360,14 +403,16 @@
 
 .snippet-content.message {
   position: relative;
-  background-color: #f1f1f1; /* Changed from #e1f5fe to light grey */
-  border-radius: 18px 18px 18px 4px;
-  padding: 12px 16px;
-  font-size: 0.95rem;
-  color: #1f2937;
-  max-width: 90%;
+  background-color: transparent;
+  border-radius: 0;
+  padding: 12px 0;
+  width: 100%;
+  max-width: 100%;
   align-self: flex-start;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  box-shadow: none;
+  display: block;
+  min-height: auto;
+  /* Use base font style */
 }
 
 /* Contact styling */
@@ -413,10 +458,35 @@
   align-items: center;
 }
 
+.favorite-btn {
+  background: none;
+  border: none;
+  color: #fbbf24;
+  cursor: pointer;
+  padding: 4px;
+  transition: all 0.2s ease;
+  opacity: 0.7;
+}
+
+.favorite-btn:hover {
+  color: #f59e0b;
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+.favorite-btn:active {
+  transform: translateY(0);
+}
+
+.favorite-btn.active {
+  opacity: 1;
+  color: #f59e0b;
+}
+
 .notes-btn {
   background: none;
   border: none;
-  color: #fb923c; /* Orange to match quote snippets */
+  color: #9CA3AF; /* Grey by default */
   cursor: pointer;
   padding: 4px;
   transition: all 0.2s ease;
@@ -424,13 +494,28 @@
 }
 
 .notes-btn:hover {
-  color: #f97316; /* Slightly darker orange on hover */
+  color: #6B7280; /* Darker grey on hover */
   opacity: 1;
   transform: translateY(-1px);
 }
 
 .notes-btn:active {
   transform: translateY(0);
+}
+
+/* Button with notes */
+.notes-btn.has-notes {
+  color: #f59e0b; /* Yellow when notes exist */
+}
+
+.notes-btn.has-notes:hover {
+  color: #f97316; /* Orange on hover for button with notes */
+}
+
+/* Make note button appear active when editing */
+.notes-btn.active {
+  color: #4f46e5;
+  background-color: #eff6ff;
 }
 
 .ai-btn {
@@ -494,27 +579,27 @@
 
 /* Specific snippet type styling */
 .code-snippet {
-  border-left: 3px solid #818cf8; /* Indigo */
+  border-left: 3px solid #d1d5db;
 }
 
 .tweet-snippet {
-  border-left: 3px solid #38bdf8; /* Sky */
+  border-left: 3px solid #d1d5db;
 }
 
 .quote-snippet {
-  border-left: 3px solid #fb923c; /* Orange */
+  border-left: 3px solid #d1d5db;
 }
 
 .text-snippet {
-  border-left: 3px solid #a3a3a3; /* Gray */
+  border-left: 3px solid #d1d5db;
 }
 
 .link-snippet {
-  border-left: 3px solid #4ade80; /* Green */
+  border-left: 3px solid #d1d5db;
 }
 
 .message-snippet {
-  border-left: 3px solid #34C759; /* iMessage Green */
+  border-left: 3px solid #d1d5db;
 }
 
 /* Media queries for responsive layout */
@@ -533,6 +618,10 @@
   .snippet-card {
     padding: 18px;
     gap: 12px;
+  }
+  
+  .main-content.sidebar-expanded {
+    left: 220px;
   }
 }
 
@@ -556,6 +645,79 @@
     padding: 16px;
     margin: 0; /* Ensure no extra margins are added */
   }
+  
+  /* Folder system responsive styling */
+  .folders-list {
+    max-width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 8px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    white-space: nowrap;
+  }
+  
+  .folders-list::-webkit-scrollbar {
+    height: 4px;
+  }
+  
+  .folders-list::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+  }
+  
+  .folders-list::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 4px;
+  }
+  
+  .folders-list::-webkit-scrollbar-thumb:hover {
+    background: #9ca3af;
+  }
+}
+
+@media (max-width: 768px) {
+  .main-content.sidebar-expanded {
+    left: 220px;
+  }
+  
+  .main-content.sidebar-collapsed {
+    left: 70px;
+  }
+  
+  /* Folder responsive adjustments */
+  .folders-section {
+    margin: 10px 0;
+  }
+  
+  .folder-item {
+    padding: 5px 10px;
+    font-size: 0.8rem;
+  }
+  
+  .folder-count {
+    font-size: 0.65rem;
+    padding: 1px 4px;
+    min-width: 16px;
+  }
+  
+  .folders-header {
+    padding: 0 2px 6px 2px;
+  }
+  
+  .folders-title {
+    font-size: 0.85rem;
+  }
+  
+  .new-folder-btn {
+    font-size: 0.8rem;
+    padding: 4px 6px;
+  }
+  
+  .new-folder-btn svg {
+    width: 14px;
+    height: 14px;
+  }
 }
 
 @media (max-width: 600px) {
@@ -577,6 +739,34 @@
     padding: 40px 20px;
     max-width: 90%;
   }
+  
+  /* Small screen folder adjustments */
+  .folder-modal {
+    max-width: 90%;
+    padding: 20px;
+  }
+  
+  .folder-modal-title {
+    font-size: 1rem;
+    margin-bottom: 12px;
+  }
+  
+  .folder-input {
+    padding: 6px 10px;
+    font-size: 0.9rem;
+    margin-bottom: 16px;
+  }
+  
+  .folder-modal-actions button {
+    padding: 6px 10px;
+    font-size: 0.85rem;
+  }
+  
+  /* Make folder section scroll horizontally on very small screens */
+  .folders-section {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 @media (max-width: 480px) {
@@ -587,6 +777,16 @@
   
   .snippet-time {
     align-self: flex-start;
+  }
+  
+  /* Simplify folders on smallest screens */
+  .folders-title span {
+    display: none; /* Hide "Folders" text on very small screens */
+  }
+  
+  .folder-item svg {
+    width: 14px;
+    height: 14px;
   }
 }
 
@@ -697,12 +897,6 @@
   opacity: 1;
 }
 
-/* Make note button appear active when editing */
-.notes-btn.active {
-  color: #4f46e5;
-  background-color: #eff6ff;
-}
-
 /* Note count badge */
 .note-count {
   position: absolute;
@@ -749,5 +943,1263 @@
   width: 16px;
   height: 16px;
   display: block;
-} 
+}
+
+/* Empty favorites state */
+.empty-favorites {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 60px 20px;
+  min-height: 400px;
+  width: 100%;
+  color: #6B7280;
+}
+
+.empty-favorites svg {
+  color: #FCD34D;
+  margin-bottom: 20px;
+  opacity: 0.7;
+}
+
+.empty-favorites h3 {
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: #4B5563;
+  margin: 0 0 8px 0;
+}
+
+.empty-favorites p {
+  font-size: 0.95rem;
+  color: #6B7280;
+  max-width: 300px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Sort Control */
+.sort-control {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.sort-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 1px solid #E5E5E5;
+  padding: 0 14px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: #353740;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+  height: 40px;
+  box-shadow: none;
+}
+
+.sort-btn:hover {
+  background-color: #F7F7F8;
+  border-color: #D9D9E3;
+}
+
+.sort-btn:active {
+  background-color: #F0F0F0;
+}
+
+.sort-btn.active {
+  background-color: #F0F0F1;
+  color: #444654;
+  border-color: #D9D9E3;
+  font-weight: 500;
+}
+
+.sort-btn.active svg {
+  stroke: #444654;
+}
+
+.sort-btn svg {
+  stroke: #8E8EA0;
+  transition: all 0.2s ease;
+}
+
+.sort-btn:focus {
+  outline: none;
+  border-color: #8E8EA0;
+  box-shadow: 0 0 0 1px rgba(142, 142, 160, 0.5);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .sort-control {
+    margin-bottom: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .sort-control {
+    width: 100%;
+    justify-content: stretch;
+  }
+  
+  .sort-btn {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+/* Controls container */
+.controls-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+/* Common styling for all filter controls */
+.search-input, .sort-btn, .app-filter-button {
+  height: 40px;
+  border: 1px solid #E5E5E5;
+  border-radius: 4px;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+  box-shadow: none;
+}
+
+/* Search bar styles */
+.search-bar {
+  position: relative;
+  flex: 1;
+  min-width: 300px;
+  max-width: 550px;
+  margin: 0 5px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+}
+
+.search-bar .search-icon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #8E8EA0;
+  pointer-events: none;
+}
+
+.search-bar .wand-icon {
+  position: absolute;
+  right: 40px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #6B7280;
+  cursor: pointer;
+  transition: color 0.2s ease, transform 0.2s ease;
+  width: 24px;
+  height: 24px;
+  filter: drop-shadow(0 0 1px #4f89f8);
+}
+
+.search-bar .wand-icon:hover {
+  color: #4f89f8;
+  transform: translateY(-50%) scale(1.1);
+}
+
+/* Smart search active styles */
+.search-bar .wand-icon.active {
+  color: #4f89f8;
+  transform: translateY(-50%) scale(1.1);
+  filter: drop-shadow(0 0 2px rgba(79, 137, 248, 0.8));
+}
+
+/* Search loading indicator */
+.search-loading-indicator {
+  position: absolute;
+  right: 70px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+}
+
+.search-loading-indicator .spinner {
+  animation: rotate 2s linear infinite;
+  width: 20px;
+  height: 20px;
+}
+
+.search-loading-indicator .path {
+  stroke: #4f89f8;
+  stroke-linecap: round;
+  animation: dash 1.5s ease-in-out infinite;
+}
+
+@keyframes rotate {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes dash {
+  0% {
+    stroke-dasharray: 1, 150;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 90, 150;
+    stroke-dashoffset: -35;
+  }
+  100% {
+    stroke-dasharray: 90, 150;
+    stroke-dashoffset: -124;
+  }
+}
+
+/* Clear search button */
+.clear-search-btn {
+  position: absolute;
+  right: 70px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #9CA3AF;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+  transition: all 0.2s ease;
+}
+
+.clear-search-btn:hover {
+  color: #6B7280;
+  opacity: 1;
+  background-color: #f3f4f6;
+}
+
+.search-input {
+  width: 100%;
+  height: 40px !important;
+  min-height: 40px;
+  max-height: 40px;
+  padding: 0 70px 0 12px !important;
+  font-size: 14px;
+  background-color: #fff;
+  color: #353740;
+  border: 1px solid #E5E5E5;
+  border-radius: 4px;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+  box-shadow: none;
+  resize: none;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+/* Add specific styles for textarea used as search input */
+textarea.search-input {
+  line-height: normal !important;
+  padding-top: 10px !important;
+}
+
+.search-input.smart-search-active {
+  border-color: #4f89f8;
+  box-shadow: 0 0 0 1px rgba(79, 137, 248, 0.3);
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #8E8EA0;
+  box-shadow: 0 0 0 1px rgba(142, 142, 160, 0.5);
+}
+
+.search-input.smart-search-active:focus {
+  border-color: #4f89f8;
+  box-shadow: 0 0 0 2px rgba(79, 137, 248, 0.4);
+}
+
+.search-input::placeholder {
+  color: #8E8EA0;
+}
+
+/* Filter Control */
+.filter-control {
+  position: relative;
+  min-width: 120px;
+  display: flex;
+  align-items: center;
+}
+
+.app-filter-button {
+  padding: 0 14px;
+  border: 1px solid #E5E5E5;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: #6B7280;
+  background-color: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 180px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  box-shadow: none;
+}
+
+.app-filter-button:hover {
+  background-color: #f9fafb;
+}
+
+.app-filter-button:focus {
+  outline: none;
+  border-color: #a3a3a3;
+  box-shadow: 0 0 0 2px rgba(163, 163, 163, 0.15);
+}
+
+.app-filter-dropdown:not(:empty) ~ .app-filter-button,
+.app-filter-button:has(.dropdown-arrow.open) {
+  border-color: #a3a3a3;
+  box-shadow: 0 0 0 2px rgba(163, 163, 163, 0.15);
+}
+
+.selected-app {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.selected-app .app-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.dropdown-arrow {
+  margin-left: 60px;
+  transition: transform 0.2s ease;
+}
+
+.dropdown-arrow.open {
+  transform: rotate(180deg);
+}
+
+.app-filter-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+}
+
+.app-filter-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  width: 240px;
+  max-height: 300px;
+  overflow-y: auto;
+  z-index: 101;
+  padding: 4px;
+  margin: 0;
+  list-style: none;
+}
+
+.app-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.app-option:hover {
+  background-color: #f9fafb;
+}
+
+.app-option.selected {
+  background-color: #f3f4f6;
+}
+
+.app-option .app-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.app-option .app-name {
+  flex: 1;
+  font-size: 0.85rem;
+  color: #4B5563;
+}
+
+.app-option .app-count {
+  font-size: 0.75rem;
+  color: #9CA3AF;
+  background-color: #f3f4f6;
+  padding: 2px 6px;
+  border-radius: 10px;
+  min-width: 20px;
+  text-align: center;
+}
+
+/* Scrollbar styles for the dropdown */
+.app-filter-dropdown::-webkit-scrollbar {
+  width: 8px;
+}
+
+.app-filter-dropdown::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.app-filter-dropdown::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+
+.app-filter-dropdown::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Media queries for responsive search */
+@media (max-width: 768px) {
+  .controls-container {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  
+  .search-input {
+    max-width: 100%;
+    order: 1;
+  }
+  
+  .filter-control {
+    width: 100%;
+    order: 0;
+  }
+  
+  .sort-control {
+    width: 100%;
+    order: 2;
+  }
+  
+  .app-filter-button {
+    width: 100%;
+  }
+  
+  .app-filter-dropdown {
+    width: 100%;
+  }
+}
+
+/* Date filter indicator */
+.date-filter-indicator {
+  display: flex;
+  align-items: center;
+  padding: 8px 15px;
+  background-color: #edf2fd;
+  border: 1px solid #d2e3fc;
+  border-radius: 4px;
+  margin-bottom: 15px;
+  width: 100%;
+  font-size: 14px;
+  color: #4a5568;
+}
+
+.date-filter-indicator svg {
+  margin-right: 8px;
+  color: #4f89f8;
+}
+
+.date-filter-indicator span {
+  flex-grow: 1;
+}
+
+.clear-date-filter {
+  background: none;
+  border: none;
+  color: #4f89f8;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.clear-date-filter:hover {
+  background-color: #d2e3fc;
+}
+
+.search-loading {
+  position: absolute;
+  right: 70px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #4f89f8;
+  font-size: 13px;
+}
+
+.search-loading .spinner {
+  animation: rotate 2s linear infinite;
+}
+
+@keyframes rotate {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Add styles for smart search command recognition */
+.search-input.has-command {
+  color: #444654;
+  font-weight: normal;
+}
+
+/* Apply different colors for different parts of the input text */
+.search-input.has-command::placeholder {
+  color: #8E8EA0;
+}
+
+/* View Commands Button */
+.view-commands-btn {
+  position: absolute;
+  right: 70px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: #f3f4f7;
+  color: #4b5563;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 10;
+}
+
+.view-commands-btn:hover {
+  background-color: #e5e7eb;
+  color: #374151;
+}
+
+.view-commands-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Commands Dropdown */
+.commands-dropdown {
+  position: absolute;
+  top: 45px;
+  left: 0;
+  width: 100%;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  z-index: 100;
+  padding: 10px;
+  animation: fadeIn 0.2s ease;
+}
+
+.commands-header {
+  font-size: 14px;
+  font-weight: 500;
+  color: #4b5563;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.command-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.command-item:hover {
+  background-color: #f9fafb;
+}
+
+.command-item .command {
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  color: #00b894;
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.command-item .description {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.commands-tip {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #f3f4f7;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #4b5563;
+}
+
+.commands-tip p {
+  margin: 0 0 5px 0;
+  line-height: 1.4;
+}
+
+.commands-tip p:last-child {
+  margin-bottom: 0;
+}
+
+.commands-tip em {
+  color: #4f46e5;
+  font-style: italic;
+}
+
+/* Adjust clear search button position when Commands button is visible */
+.search-bar:has(.view-commands-btn) .clear-search-btn {
+  right: 140px;
+}
+
+.search-bar:has(.view-commands-btn) .search-loading {
+  right: 140px;
+}
+
+/* Folder Management System */
+.folders-section {
+  margin: 15px 0;
+  width: 100%;
+}
+
+.folders-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 4px 8px 4px;
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 10px;
+}
+
+.folders-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #4b5563;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.folders-title svg {
+  width: 18px;
+  height: 18px;
+  color: #6b7280;
+}
+
+.new-folder-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  color: #4f46e5;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 5px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.new-folder-btn:hover {
+  background-color: #eff6ff;
+}
+
+.new-folder-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.folders-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.folder-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #4b5563;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.folder-item:hover {
+  background-color: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.folder-item.active {
+  background-color: #eff6ff;
+  border-color: #bfdbfe;
+  color: #4f46e5;
+}
+
+.folder-item.active svg {
+  color: #4f46e5;
+}
+
+.folder-item svg {
+  width: 16px;
+  height: 16px;
+  color: #6b7280;
+}
+
+.folder-count {
+  margin-left: 2px;
+  font-size: 0.7rem;
+  background-color: #e5e7eb;
+  color: #4b5563;
+  padding: 1px 6px;
+  border-radius: 10px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.folder-item.active .folder-count {
+  background-color: #dbeafe;
+  color: #4f46e5;
+}
+
+.folder-options {
+  margin-left: 3px;
+  cursor: pointer;
+  color: #9ca3af;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.folder-item:hover .folder-options {
+  opacity: 1;
+}
+
+.folder-options svg {
+  width: 14px;
+  height: 14px;
+}
+
+.folder-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  z-index: 100;
+  min-width: 140px;
+}
+
+.folder-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  color: #4b5563;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.folder-dropdown-item:hover {
+  background-color: #f9fafb;
+}
+
+.folder-dropdown-item.delete {
+  color: #ef4444;
+}
+
+.folder-dropdown-item svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Folder creation modal */
+.folder-modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.folder-modal {
+  background-color: white;
+  padding: 24px;
+  border-radius: 8px;
+  max-width: 400px;
+  width: 100%;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.folder-modal-title {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: #111827;
+  margin-bottom: 16px;
+}
+
+.folder-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  margin-bottom: 20px;
+}
+
+.folder-input:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+}
+
+.folder-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.folder-modal-cancel {
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  background-color: white;
+  color: #4b5563;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.folder-modal-cancel:hover {
+  background-color: #f9fafb;
+}
+
+.folder-modal-save {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 4px;
+  background-color: #4f46e5;
+  color: white;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.folder-modal-save:hover {
+  background-color: #4338ca;
+}
+
+.folder-modal-save:disabled {
+  background-color: #c7d2fe;
+  cursor: not-allowed;
+}
+
+/* Drag and drop styles */
+.snippet-card.dragging {
+  opacity: 0.6;
+  transform: scale(0.98);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.folder-item.drag-over {
+  background-color: #e0e7ff;
+  border-color: #818cf8;
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.3);
+}
+
+.folder-drop-indicator {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background-color: #4f46e5;
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+  animation: pulseAnimation 1.5s infinite;
+  z-index: 10;
+}
+
+/* Additional drag and drop visual cues */
+.snippet-card.draggable {
+  cursor: grab;
+}
+
+.snippet-card.draggable:active {
+  cursor: grabbing;
+}
+
+/* Drag handle for snippet cards */
+.drag-handle {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9CA3AF;
+  cursor: grab;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.2s ease, background-color 0.2s ease;
+}
+
+.snippet-card:hover .drag-handle {
+  opacity: 0.7;
+}
+
+.drag-handle:hover {
+  background-color: #f3f4f6;
+  opacity: 1;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+/* Add subtle hover effect to snippet cards to indicate they're draggable */
+.snippet-card.draggable:after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border: 2px dashed transparent;
+  border-radius: 8px;
+  pointer-events: none;
+  transition: border-color 0.2s ease;
+}
+
+.snippet-card.draggable:hover:after {
+  border-color: rgba(79, 70, 229, 0.15);
+}
+
+/* Drop preview indicator for folders */
+.folder-item .drop-preview {
+  position: absolute;
+  inset: -2px;
+  border: 2px dashed #4f46e5;
+  border-radius: 8px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.folder-item.drag-over .drop-preview {
+  opacity: 1;
+}
+
+/* Success animation when a drop is successful */
+.folder-item.drop-success .drop-preview {
+  animation: successDrop 0.6s ease;
+}
+
+@keyframes successDrop {
+  0% {
+    opacity: 1;
+    border-color: #4f46e5;
+    transform: scale(1);
+  }
+  70% {
+    opacity: 1;
+    border-color: #4ade80;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    border-color: #4ade80;
+    transform: scale(1);
+  }
+}
+
+@keyframes pulseAnimation {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.7);
+  }
+  70% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 6px rgba(79, 70, 229, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(79, 70, 229, 0);
+  }
+}
+
+/* "All Snippets" default folder */
+.folder-item.all-snippets {
+  background-color: #f3f4f6;
+}
+
+.folder-item.all-snippets.active {
+  background-color: #eff6ff;
+}
+
+/* Empty folder state */
+.empty-folder-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px 20px;
+  min-height: 250px;
+  width: 100%;
+  color: #6B7280;
+  background-color: #f9fafb;
+  border: 2px dashed #e5e7eb;
+  border-radius: 8px;
+  margin-top: 20px;
+}
+
+.empty-folder-state svg {
+  color: #9CA3AF;
+  margin-bottom: 16px;
+  opacity: 0.8;
+}
+
+.empty-folder-state h3 {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: #4B5563;
+  margin: 0 0 8px 0;
+}
+
+.empty-folder-state p {
+  font-size: 0.9rem;
+  color: #6B7280;
+  max-width: 300px;
+  margin: 0 0 16px 0;
+  line-height: 1.5;
+}
+
+.empty-folder-tip {
+  font-size: 0.8rem;
+  color: #9CA3AF;
+  max-width: 280px;
+  padding: 8px 12px;
+  background-color: #f3f4f6;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.empty-folder-tip svg {
+  margin-bottom: 0;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+/* Folder badge - shown next to snippet to indicate its folder assignment */
+.folder-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background-color: #f3f4f6;
+  color: #6B7280;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 6px;
+}
+
+.folder-badge svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+/* Add clear folder selection button */
+.clear-folder-btn {
+  background: none;
+  border: none;
+  color: #6B7280;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 5px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  margin-left: auto;
+}
+
+.clear-folder-btn:hover {
+  background-color: #f3f4f6;
+  color: #4B5563;
+}
+
+.clear-folder-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Active folder indicator at the top */
+.active-folder-indicator {
+  display: flex;
+  align-items: center;
+  padding: 8px 15px;
+  background-color: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 4px;
+  margin-bottom: 15px;
+  font-size: 0.9rem;
+  color: #4f46e5;
+}
+
+.active-folder-indicator svg {
+  margin-right: 8px;
+  width: 16px;
+  height: 16px;
+}
+
+.active-folder-indicator .folder-name {
+  font-weight: 500;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* CSS highlighting for smart commands in search input */
+@supports (not (selector(:has(*)))) {
+  /* Fallback for browsers that don't support :has */
+  .search-bar.has-commands-button .clear-search-btn,
+  .search-bar.has-commands-button .search-loading {
+    right: 140px;
+  }
+}
+
+/* Custom command highlighting for visual feedback */
+input.search-input {
+  transition: all 0.2s;
+}
+
+input.search-input[value^="/date"], 
+input.search-input[value^="/type"] {
+  color: #00b894;
+  font-weight: 500;
+}
+
+/* For browsers that don't support the above, we'll use JS to add this class */
+input.search-input.has-command {
+  color: #4b5563;
+}
+
+/* When both commands button and loading spinner are visible */
+.search-bar:has(.view-commands-btn):has(.search-loading) .clear-search-btn {
+  display: none;
+}
+
+/* Media queries for responsive layout */
+@media (max-width: 768px) {
+  .view-commands-btn {
+    right: 40px;
+    padding: 4px 8px;
+  }
+  
+  .view-commands-btn span {
+    display: none;
+  }
+  
+  .search-bar:has(.view-commands-btn) .clear-search-btn,
+  .search-bar:has(.view-commands-btn) .search-loading {
+    right: 80px;
+  }
+}
+
+@media (max-width: 480px) {
+  .command-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+}
+
+/* Add styling for any content with code syntax */
+.snippet-content.code-style {
+  background-color: #f8fafc;
+  border-radius: 6px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 0.85rem;
+}
 

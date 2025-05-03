@@ -134,38 +134,55 @@ const formatTimestamp = (date: Date): string => {
 
 // Improved heuristic check for code patterns with more robust detection
 const looksLikeCode = (text: string): boolean => {
-  // Avoid treating error messages as code
-  if (text.includes("Failed to load resource") || 
-      text.includes("Error processing query") ||
-      text.includes("(Bad Request)") ||
-      text.includes("HTTP status code")) {
-    return false;
-  }
-  
-  // Check for common code patterns
+  // More comprehensive check for code-like content
   const codePatterns = [
-    // Function definitions
+    // Function declarations
     /function\s+\w+\s*\(/i,
-    // Method definitions
-    /\w+\s*\(\s*\)\s*{/i,
-    // Class definitions
+    // Arrow functions
+    /const\s+\w+\s*=\s*\([^)]*\)\s*=>/i,
+    /let\s+\w+\s*=\s*\([^)]*\)\s*=>/i,
+    // Class declarations
     /class\s+\w+/i,
-    // Variable declarations
-    /(const|let|var)\s+\w+\s*=/i,
     // Import statements
-    /import\s+[\w{},\s*]+\s+from/i,
-    // HTML tags pairs
-    /<\w+[^>]*>[\s\S]*?<\/\w+>/i,
-    // Self-closing HTML tags
+    /import\s+.*from/i,
+    // Export statements
+    /export\s+(default\s+)?(function|class|const|let|var)/i,
+    // HTML/JSX elements
+    /<\w+[^>]*>.*<\/\w+>/i,
+    // Self-closing HTML/JSX elements
     /<\w+[^>]*\/>/i,
-    // CSS rules
-    /\.\w+\s*{[^}]+}/i,
-    // JavaScript objects
-    /{\s*\w+:\s*[^{}]+}/i,
+    // CSS selectors and rules
+    /(\.\w+|\#\w+)\s*\{[^}]*\}/i,
+    // SQL queries
+    /SELECT\s+.*\s+FROM\s+\w+/i,
+    // Method calls with chaining
+    /\.\w+\(\)(\.\w+\(\))*/i,
+    // Variable declarations with typing (TypeScript)
+    /(const|let|var)\s+\w+\s*:\s*\w+/i,
+    // Multiple indented lines
+    /\n\s{2,}\w+.*\n\s{2,}\w+/i,
+    // Code block with braces
+    /\{\s*\n.*\n\s*\}/s,
   ];
 
-  // Return true if any code pattern is found
-  return codePatterns.some(pattern => pattern.test(text));
+  // Check for significant code indicators
+  const hasCodeIndicators = 
+    // Has balanced brackets in a structured way
+    (text.includes('{') && text.includes('}')) ||
+    (text.includes('(') && text.includes(')') && text.includes('return')) ||
+    // Has semicolons at the end of lines (common in many languages)
+    /;\s*$/m.test(text) ||
+    // Has language keywords
+    /\b(function|return|if|else|for|while|switch|try|catch)\b/.test(text);
+
+  // Match against patterns
+  for (const pattern of codePatterns) {
+    if (pattern.test(text)) {
+      return true;
+    }
+  }
+
+  return hasCodeIndicators;
 };
 
 // Function to try to detect language with highlight.js
@@ -366,6 +383,7 @@ const NotesInputSection = ({ snippet, addNote, removeNote }: {
   );
 };
 
+// Helper function to load snippets initially
 const loadInitialSnippets = (): Snippet[] => {
   try {
     console.log('[Load] Attempting to load snippets from localStorage...');
@@ -439,10 +457,6 @@ const MainScreen: React.FC = () => {
   const navigate = useNavigate();
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [capturedSnippets, setCapturedSnippets] = useState<Snippet[]>(loadInitialSnippets());
-  // Add a new state for filtered snippets
-  const [filteredSnippets, setFilteredSnippets] = useState<Snippet[]>([]);
-  // Add a state to track if we're currently filtering
-  const [isFiltering, setIsFiltering] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [activeView, setActiveView] = useState<'all' | 'favorites' | 'tags' | 'trash'>('all');
@@ -795,12 +809,7 @@ const MainScreen: React.FC = () => {
   // Process a type query with AI to understand the content type
   const processTypeQueryWithAI = async (query: string): Promise<ParsedFilters | null> => {
     console.log('Processing type query with AI:', query);
-    
-    // First set searching state to show loading indicator
     setIsSearching(true);
-    
-    // Clear any existing filters to avoid stale state
-    setParsedFilters(null);
 
     try {
       // Normalize the query by removing the /type command if present
@@ -811,48 +820,48 @@ const MainScreen: React.FC = () => {
         return null;
       }
 
-      // Simple keyword matching for common types to avoid unnecessary API calls
-      const simpleTypes = {
-        'link': 'link',
-        'url': 'link',
-        'website': 'link',
-        'web': 'link',
-        'code': 'code',
-        'script': 'code',
-        'programming': 'code',
-        'text': 'text',
-        'note': 'text',
-        'message': 'text'
-      };
-
-      // Check if we can determine the type without API call
+      // For immediate response, do direct keyword matching first
       const lowerQuery = normalizedQuery.toLowerCase();
-      for (const [keyword, type] of Object.entries(simpleTypes)) {
-        if (lowerQuery === keyword || lowerQuery.startsWith(keyword + ' ') || lowerQuery.includes(' ' + keyword)) {
-          console.log(`Simple matching found type: ${type} for query: ${normalizedQuery}`);
-          
-          const simpleFilter: ParsedFilters = {
-            contentType: type
-          };
-          
-          // If it's code and we can detect a language
-          if (type === 'code') {
-            const languages = ['javascript', 'python', 'html', 'css', 'typescript', 'java', 'c++', 'c#', 'php', 'ruby', 'go', 'rust', 'swift'];
-            for (const lang of languages) {
-              if (lowerQuery.includes(lang)) {
-                simpleFilter.codeContext = { language: lang };
-                break;
-              }
-            }
-          }
-          
-          setIsSearching(false);
-          return simpleFilter;
+      const keyTerms = {
+        'code': ['code', 'snippet', 'function', 'programming', 'script'],
+        'link': ['link', 'url', 'website', 'web', 'http'],
+        'text': ['text', 'plain text', 'note', 'message'],
+        'image': ['image', 'picture', 'photo', 'screenshot'],
+        'error': ['error', 'exception', 'failed', 'warning'],
+        'login': ['login', 'auth', 'sign in', 'credentials']
+      };
+      
+      // Find matching type based on keywords
+      let directMatchTypes: string[] = [];
+      Object.entries(keyTerms).forEach(([type, terms]) => {
+        if (terms.some(term => lowerQuery.includes(term))) {
+          directMatchTypes.push(type);
         }
+      });
+      
+      if (directMatchTypes.length > 0) {
+        console.log(`Fast-path direct type match: ${directMatchTypes.join(', ')}`);
+        
+        // Return immediately with simple filter for better responsiveness
+        const parsedFilters: ParsedFilters = {
+          contentType: directMatchTypes[0],
+          alternativeTypes: directMatchTypes.slice(1),
+          keywords: normalizedQuery.split(' ')
+            .filter(word => word.length > 3)
+            .filter(word => !directMatchTypes.some(type => word.toLowerCase().includes(type.toLowerCase())))
+        };
+        
+        setIsSearching(false);
+        return parsedFilters;
       }
 
-      // Continue with AI API call if simple matching didn't work
-      // [The rest of the AI API code should remain unchanged]
+      // Get a sample of current clipboard items to provide context (limit to 5 items)
+      const contextSnippets = capturedSnippets.slice(0, 5).map(snippet => ({
+        type: snippet.type,
+        contentPreview: snippet.content.substring(0, 100) + (snippet.content.length > 100 ? '...' : ''),
+        timestamp: snippet.timestamp,
+        tags: snippet.tags
+      }));
 
       // Make a request to the AI API for semantic understanding
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -866,40 +875,43 @@ const MainScreen: React.FC = () => {
           messages: [
             {
               role: 'system',
-              content: `You are an AI assistant that analyzes user queries for a clipboard manager app and extracts structured information about what the user is looking for.
+              content: `You are an advanced AI assistant for a clipboard manager application that helps users filter and find their clipboard history.
 
-Your task is to parse natural language queries and return a structured JSON with filters that can be applied to clipboard items.
+CONTEXT ABOUT THE APP:
+- Users can search their clipboard history using natural language queries
+- Available content types include: code, text, url/link, image, quote, tweet, etc.
+- Code snippets can be in various programming languages
+- Content can be from different apps (Chrome, VS Code, etc.)
+- Users can filter by time (today, yesterday, last week) or specific dates
 
-A query might contain multiple filtering criteria such as:
-1. Content type (code, image, text, url, file)
-2. Programming language specifications (JavaScript, Python, HTML, etc.)
-3. Time references (today, yesterday, last week, specific dates)
-4. Source application references (from Chrome, copied from VS Code)
-5. Content descriptors (about machine learning, related to login)
+YOUR TASK:
+Analyze the user's query and extract structured filtering criteria with extreme precision. Pay special attention to:
 
-Focus on understanding the semantic intent of the query, not just matching keywords.
+1. Identifying the precise content type they're looking for
+2. Understanding programming language specifications for code
+3. Recognizing time references and source applications
+4. Extracting meaningful keywords about content
+
+CURRENT CLIPBOARD CONTEXT (to help understand relative content):
+${JSON.stringify(contextSnippets, null, 2)}
+
+Current date/time: ${new Date().toISOString()}
 
 IMPORTANT: Return ONLY a valid JSON object with the following structure:
 {
-  "contentType": string | null,           // The primary content type (code, image, text, url, file)
-  "programmingLanguage": string | null,   // If code, what language (javascript, python, html, etc)
-  "dateFilter": {                        // Time range filter
-    "from": ISO date string | null,      // Start date (inclusive)
-    "to": ISO date string | null         // End date (inclusive)
+  "contentType": string | null,           // Primary content type (code, text, link/url, image, etc.)
+  "alternativeTypes": string[] | null,    // Other possible content types the query might refer to
+  "programmingLanguage": string | null,   // If code, what language (javascript, python, html, etc.)
+  "dateFilter": {                         // Time range filter
+    "from": ISO date string | null,       // Start date (inclusive)
+    "to": ISO date string | null,         // End date (inclusive)
+    "relative": string | null             // Description like "today", "yesterday", "last week"
   },
-  "sourceApp": string | null,            // Source application name
-  "keywords": string[] | null,           // Important content keywords
-  "confidence": number                   // 0-1 score of confidence in the interpretation
-}
-
-Examples:
-- For "javascript from today": Extract both the programming language and the date constraint
-- For "screenshots from yesterday": Extract both the content type (image) and the date constraint
-- For "code about authentication": Extract both the content type (code) and the keywords
-- For "urls from chrome": Extract both the content type (url) and the source application
-
-Always return an ISO date string (YYYY-MM-DD) for date references, using the current date for relative terms.
-Use null for any fields that aren't specified in the query.`
+  "sourceApp": string | null,             // Source application name
+  "keywords": string[] | null,            // Important content keywords
+  "confidence": number,                   // 0-1 score of confidence in the interpretation
+  "interpretedQuery": string              // A brief explanation of how you interpreted the query
+}`
             },
             {
               role: 'user',
@@ -922,7 +934,20 @@ Use null for any fields that aren't specified in the query.`
 
       const aiResponse = JSON.parse(data.choices[0].message.content);
       console.log('AI response:', aiResponse);
-
+      
+      // Convert AI response to ParsedFilters format
+      const parsedFilters: ParsedFilters = {};
+      
+      // Handle content type with alternatives for flexible matching
+      if (aiResponse.contentType) {
+        parsedFilters.contentType = aiResponse.contentType.toLowerCase();
+        
+        // Add alternative type matches
+        if (aiResponse.alternativeTypes && Array.isArray(aiResponse.alternativeTypes)) {
+          parsedFilters.alternativeTypes = aiResponse.alternativeTypes.map((t: string) => t.toLowerCase());
+        }
+      }
+      
       // Get current date for relative date processing
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -931,14 +956,6 @@ Use null for any fields that aren't specified in the query.`
       
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
-      
-      // Convert AI response to ParsedFilters format
-      const parsedFilters: ParsedFilters = {};
-      
-      // Handle content type
-      if (aiResponse.contentType) {
-        parsedFilters.contentType = aiResponse.contentType.toLowerCase();
-      }
       
       // Handle code type with programming language
       if ((aiResponse.contentType === 'code' || parsedFilters.contentType === 'code') && aiResponse.programmingLanguage) {
@@ -986,11 +1003,13 @@ Use null for any fields that aren't specified in the query.`
       
       console.log('Parsed filters:', parsedFilters);
       
-      // Set the searching state to false before returning
+      // Store the parsed filters in state for other components to use
+      setParsedFilters(parsedFilters);
+      
       setIsSearching(false);
       return parsedFilters;
     } catch (error) {
-      console.error('Error in AI processing:', error);
+      console.error('Error processing type query:', error);
       setIsSearching(false);
       return null;
     }
@@ -998,304 +1017,213 @@ Use null for any fields that aren't specified in the query.`
 
   // Helper function to match a snippet by type
   const matchesTypeQuery = (snippet: Snippet, parsedFilters: ParsedFilters | null): boolean => {
-    if (!parsedFilters) return true;
-    
-    // Start with the assumption that the snippet matches
+    if (!parsedFilters) return true; // No filters means match everything
+
     let matches = true;
-    
-    // Check date context if present
-    if (parsedFilters.dateContext) {
-      const { from, to } = parsedFilters.dateContext;
-      const snippetDate = getDateFromTimestamp(snippet.timestamp);
-      const fromDate = new Date(from);
-      const toDate = new Date(to);
-      
-      // Set hours to ensure we're comparing full days
-      fromDate.setHours(0, 0, 0, 0);
-      toDate.setHours(23, 59, 59, 999);
-      
-      if (snippetDate < fromDate || snippetDate > toDate) {
-        return false; // Date doesn't match, early return
-      }
-    }
-    
-    // Check content type
+
+    // Check content type if specified (with alternatives support)
     if (parsedFilters.contentType) {
-      const type = parsedFilters.contentType;
+      // Improved content type matching with direct checks
+      const contentType = parsedFilters.contentType.toLowerCase();
       
-      // Direct type match
-      if (type === 'code' && snippet.type !== 'code') {
-        // For code, check if it might be code even if not marked as such
-        const isCodeLike = looksLikeCode(snippet.content);
-        if (!isCodeLike) return false;
-      } 
-      else if (type === 'url' && snippet.type !== 'link') {
-        // For URLs, check if the content contains a URL pattern
-        const hasUrl = /https?:\/\/[^\s]+/.test(snippet.content);
-        if (!hasUrl) return false;
+      // Try matching primary content type
+      let typeMatches = matchesContentType(snippet, contentType);
+      
+      // If that fails, check common variations for better matching
+      if (!typeMatches) {
+        // Common variations to check
+        const typeVariations: {[key: string]: string[]} = {
+          'code': ['script', 'function', 'programming', 'javascript', 'python', 'typescript'],
+          'link': ['url', 'web', 'website', 'http'],
+          'image': ['picture', 'photo', 'screenshot'],
+          'text': ['message', 'note', 'plain text']
+        };
+        
+        // Check if we have variations for this content type
+        const variations = typeVariations[contentType] || [];
+        
+        // Try each variation
+        for (const variant of variations) {
+          if (matchesContentType(snippet, variant)) {
+            typeMatches = true;
+            break;
+          }
+        }
       }
-      else if (type === 'image' && !/image|screenshot|picture|photo/i.test(snippet.type)) {
-        return false;
+      
+      // If still no match, check alternative types if specified
+      if (!typeMatches && parsedFilters.alternativeTypes && parsedFilters.alternativeTypes.length > 0) {
+        // Check each alternative type
+        typeMatches = parsedFilters.alternativeTypes.some(altType => 
+          matchesContentType(snippet, altType)
+        );
       }
-      else if (type === 'file' && !/file|document|pdf/i.test(snippet.type)) {
-        return false;
-      }
-      else if (type === 'text' && (snippet.type === 'code' || snippet.type === 'link')) {
-        return false;
+      
+      if (!typeMatches) {
+        matches = false;
       }
     }
-    
-    // Check programming language for code snippets
-    if (parsedFilters.codeContext?.language && snippet.type === 'code') {
-      const lang = parsedFilters.codeContext.language.toLowerCase();
-      const detectedLang = detectLanguageWithHljs(snippet.content)?.toLowerCase() || '';
+
+    // Check code language if specified
+    if (matches && parsedFilters.codeContext?.language && snippet.type === 'code') {
+      const codeSnippet = snippet as CodeSnippet;
+      const detectedLanguage = detectLanguageWithHljs(codeSnippet.content)?.toLowerCase() || '';
       
-      // Use fuzzy matching for language detection
-      const langMatches = detectedLang.includes(lang) || 
-                          (lang === 'js' && detectedLang.includes('javascript')) ||
-                          (lang === 'py' && detectedLang.includes('python')) ||
-                          (lang === 'ts' && detectedLang.includes('typescript'));
-                          
-      if (!langMatches) return false;
-    }
-    
-    // Check source app
-    if (parsedFilters.source && snippet.sourceApp?.name) {
-      const sourceMatches = snippet.sourceApp.name.toLowerCase().includes(parsedFilters.source.toLowerCase());
-      if (!sourceMatches) return false;
-    }
-    
-    // Check keywords
-    if (parsedFilters.searchTerms && parsedFilters.searchTerms.length > 0) {
-      const allContentFields = [
-        snippet.content,
-        snippet.notes?.join(' ') || '',
-        snippet.source,
-        snippet.type
-      ].join(' ').toLowerCase();
+      // More flexible language matching with aliases
+      const languageAliases: Record<string, string[]> = {
+        'javascript': ['js', 'jsx', 'node', 'nodejs'],
+        'typescript': ['ts', 'tsx'],
+        'python': ['py', 'python3'],
+        'html': ['html5', 'markup'],
+        'css': ['scss', 'sass', 'less', 'stylesheets'],
+        'csharp': ['c#', 'cs', 'dotnet'],
+        'cpp': ['c++', 'cplusplus', 'c'],
+      };
       
-      const keywordMatches = parsedFilters.searchTerms.some(searchTerm => 
-        allContentFields.includes(searchTerm.term.toLowerCase())
+      const targetLanguage = parsedFilters.codeContext.language.toLowerCase();
+      const aliases = languageAliases[targetLanguage] || [];
+      
+      // Check if detected language matches target or any of its aliases
+      const languageMatches = 
+        detectedLanguage.includes(targetLanguage) || 
+        aliases.some(alias => detectedLanguage.includes(alias)) ||
+        (targetLanguage === 'javascript' && detectedLanguage.includes('jsx')) ||
+        (targetLanguage === 'typescript' && detectedLanguage.includes('tsx'));
+      
+      if (!languageMatches) {
+        matches = false;
+      }
+    }
+
+    // Check source app if specified
+    if (matches && parsedFilters.source) {
+      // Make app source matching more flexible with partial matches
+      const snippetSource = snippet.source.toLowerCase();
+      const targetSource = parsedFilters.source.toLowerCase();
+      
+      // Check common app name variations
+      const appAliases: Record<string, string[]> = {
+        'chrome': ['google chrome', 'web browser', 'browser'],
+        'vscode': ['vs code', 'visual studio code', 'visual studio', 'code editor'],
+        'slack': ['slack app', 'chat', 'messaging'],
+        'terminal': ['command line', 'cli', 'shell', 'bash', 'zsh'],
+      };
+      
+      const aliases = appAliases[targetSource] || [];
+      
+      const sourceMatches = 
+        snippetSource.includes(targetSource) || 
+        aliases.some(alias => snippetSource.includes(alias));
+        
+      if (!sourceMatches) {
+        matches = false;
+      }
+    }
+
+    // Check date filter if specified
+    if (matches && parsedFilters.dateContext) {
+      const fromDate = parsedFilters.dateContext.from;
+      const toDate = parsedFilters.dateContext.to;
+      
+      if (fromDate || toDate) {
+        const snippetDate = getDateFromTimestamp(snippet.timestamp);
+        const startDate = fromDate ? new Date(fromDate) : new Date(0); // Unix epoch if not specified
+        const endDate = toDate ? new Date(toDate) : new Date(8640000000000000); // Max date if not specified
+        
+        endDate.setHours(23, 59, 59, 999); // Set to end of day for inclusive matching
+        
+        if (snippetDate < startDate || snippetDate > endDate) {
+          matches = false;
+        }
+      }
+    }
+
+    // Check keywords if specified (with improved matching)
+    if (matches && parsedFilters.keywords && parsedFilters.keywords.length > 0) {
+      const snippetContent = snippet.content.toLowerCase();
+      
+      // First try to match all keywords (AND logic)
+      const allKeywordsMatch = parsedFilters.keywords.every(keyword => 
+        snippetContent.includes(keyword.toLowerCase())
       );
       
-      if (!keywordMatches) return false;
+      // If that fails, try to match at least one keyword (OR logic)
+      if (!allKeywordsMatch) {
+        const anyKeywordMatches = parsedFilters.keywords.some(keyword => 
+          snippetContent.includes(keyword.toLowerCase())
+        );
+        
+        if (!anyKeywordMatches) {
+          matches = false;
+        }
+      }
     }
-    
+
     return matches;
   };
 
   // Helper function to match a specific content type
   const matchesContentType = (snippet: Snippet, contentType: string): boolean => {
-    const aiType = contentType.toLowerCase();
+    // Normalize input
+    const normalizedType = contentType.toLowerCase().trim();
     
-    // Direct type matching - enforce strict type checking
-    // This ensures we don't mix types in search results
-    if (aiType === "url" || aiType === "link") {
-      // For URL/link types, only match items that are actually URLs
-      
-      // First check if the snippet itself has link type
-      if (snippet.type.toLowerCase() === "link") {
-        return true;
-      }
-      
-      // Check content for URL patterns
-      if (snippet.content.match(/^https?:\/\/[^\s]+$/i)) {
-        return true;
-      }
-      
-      // Check for URL-like characteristics, but be more strict
-      if (
-        // Must look like a real URL or domain
-        snippet.content.match(/^www\.[^\s]+\.[a-z]{2,}(\/|$)/i) ||
-        snippet.content.match(/^[a-z0-9-]+\.[a-z]{2,}(\/|$)/i)
-      ) {
-        return true;
-      }
-      
-      // Reject content with error messages
-      if (
-        snippet.content.includes('Failed to load') || 
-        snippet.content.includes('Error') ||
-        snippet.content.includes('error when')
-      ) {
-        return false;
-      }
-      
-      // Reject if it contains HTML/code syntax
-      if (
-        snippet.content.includes('<div') || 
-        snippet.content.includes('<span') || 
-        snippet.content.includes('<input') || 
-        snippet.content.includes('function') ||
-        snippet.content.includes('class=') ||
-        looksLikeCode(snippet.content)
-      ) {
-        return false;
-      }
-      
-      return false;
-    }
-    else if (aiType === "code") {
-      // For code content, be more specific about what counts as code
-      
-      // First check if the snippet has code type
-      if (snippet.type.toLowerCase() === "code") {
-        return true;
-      }
-      
-      // Exclude error messages that mention code but aren't code
-      if (
-        snippet.content.includes('Failed to load resource') || 
-        snippet.content.includes('Error processing query') ||
-        snippet.content.includes('(Bad Request)')
-      ) {
-        return false;
-      }
-      
-      // Check if the content looks like code
-      if (looksLikeCode(snippet.content)) {
-        return true;
-      }
-      
-      // Check specific code indicators that aren't caught by looksLikeCode
-      const hasCodeCharacteristics = 
-        // Has code fragments with balanced brackets
-        ((snippet.content.includes('{') && snippet.content.includes('}')) ||
-         (snippet.content.includes('(') && snippet.content.includes(')'))) &&
-        // Has common coding syntax
-        (snippet.content.includes('function ') ||
-         snippet.content.includes('class ') ||
-         snippet.content.includes('import ') ||
-         snippet.content.includes('const ') ||
-         snippet.content.includes('let ') ||
-         snippet.content.includes('var ') ||
-         // Has comment syntax
-         snippet.content.includes('//') ||
-         snippet.content.includes('/*') ||
-         snippet.content.includes('*/') ||
-         // Has HTML tags
-         /<[^>]*>/.test(snippet.content) ||
-         // Has indentation patterns common in code
-         /^\s{2,}[\w]/m.test(snippet.content)
-        );
-      
-      return hasCodeCharacteristics;
-    }
-    else if (aiType === "image") {
-      // For image content, check for image-specific patterns
-      
-      // Direct match with type
-      if (snippet.type.toLowerCase() === "image") {
-        return true;
-      }
-      
-      // Check for image file extensions
-      if (snippet.content.match(/\.(jpg|jpeg|png|gif|svg|webp|bmp|tiff|ico|heic)$/i)) {
-        return true;
-      }
-      
-      // Check for image URLs
-      if (snippet.content.match(/https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|svg|webp|bmp|tiff|ico)/i)) {
-        return true;
-      }
-      
-      // Check specific image content patterns
-      const imageContentPatterns = [
-        /screenshot of/i,
-        /image of/i,
-        /photo of/i,
-        /picture of/i,
-        /\.jpg$/i,
-        /\.png$/i,
-        /\.gif$/i
-      ];
-      
-      for (const pattern of imageContentPatterns) {
-        if (pattern.test(snippet.content)) {
-          return true;
-        }
-      }
-      
-      return false;
-    }
-    else if (aiType === "file") {
-      // For file content, check for file-specific patterns
-      
-      // Direct match with type
-      if (snippet.type.toLowerCase() === "file") {
-        return true;
-      }
-      
-      // Check for file extensions
-      if (snippet.content.match(/\.(pdf|docx?|xlsx?|pptx?|zip|tar|gz|rar|csv|txt|rtf|md|json|xml|mp3|mp4|mov|avi)$/i)) {
-        return true;
-      }
-      
-      // Check for file paths
-      if (snippet.content.match(/^\/[\w\/]+\.\w+$/) ||
-          snippet.content.match(/^[A-Z]:\\[\w\\]+\.\w+$/)) {
-        return true;
-      }
-      
-      // Check for specific file content patterns
-      const fileContentPatterns = [
-        /document/i,
-        /spreadsheet/i,
-        /presentation/i,
-        /pdf/i,
-        /excel/i,
-        /word document/i,
-        /powerpoint/i,
-        /zip file/i,
-        /compressed/i
-      ];
-      
-      for (const pattern of fileContentPatterns) {
-        if (pattern.test(snippet.content)) {
-          return true;
-        }
-      }
-      
-      return false;
-    }
-    else if (aiType === "text") {
-      // For text content, exclude other clearly identified types
-      
-      // Direct match with type
-      if (snippet.type.toLowerCase() === "text" || snippet.type.toLowerCase() === "message") {
-        return true;
-      }
-      
-      // Exclude content that is clearly not text
-      if (
-        looksLikeCode(snippet.content) ||
-        snippet.content.match(/^https?:\/\/[^\s]+$/) ||
-        snippet.content.match(/\.(jpg|jpeg|png|gif|svg|webp|bmp|tiff)$/i) ||
-        snippet.content.match(/\.(pdf|docx?|xlsx?|pptx?|zip|tar|gz|rar)$/i)
-      ) {
-        return false;
-      }
-      
-      // Check for text content characteristics
-      if (
-        // Has multiple sentences
-        snippet.content.match(/[.!?]\s[A-Z]/) ||
-        // Has paragraphs
-        snippet.content.includes('\n\n') ||
-        // Not very short and doesn't look like code or URL
-        (snippet.content.length > 50 && 
-         !snippet.content.includes('{') && 
-         !snippet.content.includes('<') &&
-         !snippet.content.includes('function'))
-      ) {
-        return true;
-      }
-      
-      return true; // Default to including as text if nothing else matches
+    // Direct type matching
+    if (snippet.type.toLowerCase() === normalizedType) {
+      return true;
     }
     
-    // Default fallback to type comparison if no special handler
-    return snippet.type.toLowerCase() === aiType;
+    // Check tags
+    if (snippet.tags && snippet.tags.some(tag => tag.toLowerCase() === normalizedType)) {
+      return true;
+    }
+    
+    const content = snippet.content.toLowerCase();
+    
+    // Special case handling for common content types
+    switch (normalizedType) {
+      case 'code':
+      case 'script':
+      case 'function':
+      case 'programming':
+        return snippet.type === 'code' || 
+               looksLikeCode(content) || 
+               content.includes('function') || 
+               content.includes('const ') ||
+               content.includes('var ') ||
+               content.includes('import ') ||
+               content.includes('return ') ||
+               content.includes('class ');
+      
+      case 'link':
+      case 'url':
+      case 'website':
+      case 'web':
+        return snippet.type === 'link' || 
+               content.includes('http') || 
+               content.includes('www.') ||
+               content.startsWith('https:');
+      
+      case 'image':
+      case 'picture':
+      case 'photo':
+      case 'screenshot':
+        return (snippet.type as string) === 'image' || 
+               content.includes('.jpg') ||
+               content.includes('.png') ||
+               content.includes('.gif');
+               
+      case 'text':
+      case 'message':
+      case 'note':
+        return snippet.type === 'text' || 
+               snippet.type === 'message' ||
+               (!looksLikeCode(content) && 
+                !content.includes('http'));
+                
+      default:
+        // For any other type, look for it in the content
+        return content.includes(normalizedType);
+    }
   };
 
   // Simple helper function for date formatting
@@ -1805,11 +1733,8 @@ Examples:
   
   // Compute filtered snippets
   const displayedSnippets = useMemo(() => {
-    // If we're filtering, use the filtered snippets instead of the captured ones
-    let snippetsToUse = isFiltering ? filteredSnippets : capturedSnippets;
-    
     // Apply filters based on current view
-    let filtered = isDemoMode ? demoSnippets : snippetsToUse;
+    let filtered = isDemoMode ? demoSnippets : capturedSnippets;
 
     // First filter by view (favorites/all)
     if (activeView === 'favorites') {
@@ -1848,14 +1773,13 @@ Examples:
       : filtered.sort(sortByOldest);
   }, [
     capturedSnippets, 
-    filteredSnippets,
-    isFiltering,
     demoSnippets,
     isDemoMode,
     activeView, 
     selectedApp, 
     processedDateQuery, 
     parsedFilters,
+    searchInput,
     sortType
   ]);
   
@@ -1934,6 +1858,7 @@ Examples:
       // Default tag
       let tags: string[] = ['clipboard'];
       let methodUsed = 'default';
+      // @ts-ignore - For future use
       let contentType = 'text';
       let confidence = 1.0;
 
@@ -1943,19 +1868,10 @@ Examples:
         tags = ['link', 'url'];
         methodUsed = 'regex-url';
         console.log(`✅ Detected link via regex`);
-        contentType = 'link';
       } else {
         // Use Groq for comprehensive tag analysis
         try {
           console.log("🧠 Calling Groq API for content tagging...");
-          // Get API key from env or use fallback
-          const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY || "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";
-          
-          // Don't try to call the API if we don't have a key
-          if (!GROQ_API_KEY) {
-            throw new Error("No Groq API key provided");
-          }
-          
           const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
             headers: {
@@ -2098,13 +2014,11 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
                 // First add code+language pair if both exist
                 if (codeTag !== -1 && languageTag !== -1) {
                   sortedTags.push(tags[codeTag], tags[languageTag]);
-                  contentType = 'code';
                 }
                 // Then add code alone if it exists
                 else if (codeTag !== -1) {
                   sortedTags.push(tags[codeTag]);
-        contentType = 'code';
-        
+                  
                   // If code exists but no language was detected, try highlight.js
                   const hljsResult = detectLanguageWithHljs(text);
                   if (hljsResult) {
@@ -2117,9 +2031,6 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
                   const tagIndex = tags.findIndex(tag => tag === pTag);
                   if (tagIndex !== -1 && !sortedTags.includes(tags[tagIndex])) {
                     sortedTags.push(tags[tagIndex]);
-                    if (pTag === 'link' || pTag === 'url') {
-                      contentType = 'link';
-                    }
                   }
                 });
                 
@@ -2170,19 +2081,16 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
             if (hljsResult) {
               tags = ['code', hljsResult];
               methodUsed = 'fallback-highlight.js';
-              contentType = 'code';
             } else {
               // Just generic code tag if language can't be determined
-              tags = ['code', 'snippet'];
+              tags = ['code'];
               methodUsed = 'fallback-heuristics';
-              contentType = 'code';
             }
           } else {
             // Try to detect obvious content types based on patterns
             if (/^https?:\/\/\S+/i.test(text)) {
               tags = ['link', 'url'];
               methodUsed = 'fallback-regex';
-              contentType = 'link';
             } else if (/^([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/i.test(text)) {
               tags = ['email', 'contact-info'];
               methodUsed = 'fallback-regex';
@@ -2192,164 +2100,47 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
             } else if (/^\s*[\*\-\+]\s|^\d+\.\s/m.test(text) && text.split('\n').length > 2) {
               tags = ['list', 'text'];
               methodUsed = 'fallback-regex';
-            } else if (sourceApp?.name === 'Messages' || sourceApp?.name === 'iMessage' || /^[A-Z][a-z]+:.*/.test(text)) {
-              tags = ['message', 'conversation'];
-              methodUsed = 'fallback-regex';
-              contentType = 'message';
-            } else if (/\b(def|class|function|import|export|const|let|var|return|if|else|for|while)\b/.test(text)) {
-              // More code patterns that might not be caught by looksLikeCode
-              tags = ['code', 'snippet'];
-              methodUsed = 'fallback-keywords';
-              contentType = 'code';
-            } else if (/\b(todo|task|reminder|don't forget|remember to)\b/i.test(text)) {
-              tags = ['todo', 'task'];
-              methodUsed = 'fallback-keywords';
-            } else if (/\b(meeting|agenda|schedule|calendar|appointment)\b/i.test(text)) {
-              tags = ['meeting', 'schedule'];
-              methodUsed = 'fallback-keywords';
-            } else if (text.length > 300) {
-              tags = ['text', 'paragraph'];
-              methodUsed = 'fallback-length';
-            } else if (text.split('\n').length > 3) {
-              tags = ['multiline', 'text'];
-              methodUsed = 'fallback-format';
-            } else if (/\b(hello|hi|hey|what's up|howdy)\b/i.test(text.substring(0, 100))) {
-              tags = ['greeting', 'message'];
-              methodUsed = 'fallback-keywords';
-            } else if (/^[A-Z].*[.!?]$/.test(text) && text.length < 200) {
-              tags = ['sentence', 'text'];
-              methodUsed = 'fallback-format';
             } else {
               // Just use default tag for plain text
-              tags = ['text', 'clipboard'];
+              tags = ['text'];
               methodUsed = 'fallback-default';
             }
           }
         }
       }
 
-      // Ensure tags array is unique and has at least 2 tags
+      // Ensure tags array is unique 
       tags = [...new Set(tags)];
-      if (tags.length < 2) {
-        if (tags[0] === 'clipboard') {
-          tags.push('text');
-        } else {
-          tags.push('clipboard');
-        }
-      }
 
-      // Create a new snippet
-      const newSnippet: Snippet = {
-        id: `snippet-${Date.now()}`,
-        type: contentType as 'text' | 'code' | 'link',
+      const newSnippet: TextSnippet = {
+        id: crypto.randomUUID(),
+        type: 'text',
         content: text,
         source: sourceApp?.name || 'Clipboard',
+        sourceApp: sourceApp,
         timestamp: formatTimestamp(new Date()),
         tags: tags,
-        isFavorite: false,
-        sourceApp: sourceApp
-      } as Snippet;
+      };
 
-      // Add path for code snippets
-      if (contentType === 'code') {
-        (newSnippet as CodeSnippet).path = 'clipboard-code';
-      }
-      
-      // Add title for link snippets
-      if (contentType === 'link') {
-        // Don't set a duplicate title for link snippets
-        // The link will be shown in the content area only
-        (newSnippet as LinkSnippet).title = '';
-      }
+      setCapturedSnippets(prevSnippets => {
+        console.log(`[State Update] Adding new snippet with tags: #${tags.join(', #')} (detection method: ${methodUsed}, confidence: ${confidence})`);
+        console.log('[State Update] Previous snippets count:', prevSnippets.length);
+        console.log('[State Update] Previous snippets (first 3):', prevSnippets.slice(0, 3).map(s => ({ id: s.id, content: s.content.substring(0, 20) + '...' })));
+        console.log('[State Update] New snippet being added:', { id: newSnippet.id, content: newSnippet.content.substring(0, 20) + '...' });
 
-      // Detect message type content for better classification
-      if (contentType === 'text' && (
-          // Check for message-like patterns
-          (sourceApp?.name === 'Messages' || sourceApp?.name === 'iMessage') ||
-          /^[A-Z][a-z]+:.*/.test(text) || // Name followed by colon
-          /^[A-Z][a-z]+ [A-Z][a-z]+:.*/.test(text) || // First and last name followed by colon
-          text.includes(': ') || // Any name-like pattern with colon
-          // Check for conversation-like content
-          (/\b(said|says|replied|wrote|told|asked)\b/i.test(text) && text.length < 1000)
-      )) {
-        // It's likely a message/conversation
-        contentType = 'message';
-        (newSnippet as MessageSnippet).type = 'message';
-        (newSnippet as MessageSnippet).contact = sourceApp?.name || 'Unknown';
+        const updatedSnippets = [newSnippet, ...prevSnippets];
+
+        console.log('[State Update] Updated snippets count:', updatedSnippets.length);
+        console.log('[State Update] Updated snippets (first 3):', updatedSnippets.slice(0, 3).map(s => ({ id: s.id, content: s.content.substring(0, 20) + '...' })));
+
+        // The useEffect watching capturedSnippets handles saving now, so this specific call might be redundant,
+        // but leaving it here for now shouldn't cause harm.
+        saveSnippetsToLocalStorage(updatedSnippets); 
         
-        // Ensure message content gets proper tags
-        if (tags.includes('clipboard') && tags.length < 2) {
-          tags = ['message', 'conversation'];
-        } else if (tags[0] === 'clipboard') {
-          tags[0] = 'message';
-        } else if (tags.length === 1) {
-          tags.push('message');
-        }
-      }
-
-      // Ensure tags are appropriate and there are at least 2
-      if (tags.length < 2) {
-        // Add a second tag based on content type
-        if (contentType === 'code' && !tags.includes('code')) {
-          tags.push('code');
-        } else if (contentType === 'link' && !tags.includes('link')) {
-          tags.push('link');
-        } else if (contentType === 'message' && !tags.includes('message')) {
-          tags.push('message');
-        } else if (!tags.includes('text')) {
-          tags.push('text');
-        }
-      }
-
-      // If we still have only generic tags, add more specific ones
-      if (tags.length === 2 && tags.includes('clipboard') && tags.includes('text')) {
-        // Try to identify content more specifically
-        if (/\b(hello|hi|hey|greetings)\b/i.test(text.substring(0, 100))) {
-          tags = ['greeting', 'message'];
-        } else if (/\b(question|why|how|what|when|where|who)\b/i.test(text)) {
-          tags = ['question', 'text'];
-        } else if (/\b(thank|thanks|appreciate)\b/i.test(text)) {
-          tags = ['thanks', 'message'];
-        } else if (text.split('\n').length > 3) {
-          tags = ['multiline', 'text'];
-        } else if (text.length > 150) {
-          tags = ['paragraph', 'text'];
-        } else {
-          tags = ['snippet', 'text'];
-        }
-      }
-
-      console.log(`✅ Adding new snippet with tags: ${tags.join(', ')} (detection method: ${methodUsed}, confidence: ${confidence})`);
-
-      // Add the new snippet to the state - always add to capturedSnippets, not displayedSnippets
-      setCapturedSnippets(prev => {
-        // Check for duplicate content to avoid adding the same thing twice
-        const isDuplicate = prev.some(s => s.content === text);
-        if (isDuplicate) {
-          console.log("⚠️ Duplicate content detected, not adding snippet");
-          return prev;
-        }
-        
-        const updatedSnippets = [newSnippet, ...prev];
-        saveSnippetsToLocalStorage(updatedSnippets);
         return updatedSnippets;
       });
-      
-      // When in search mode, and if the new snippet matches the search criteria, 
-      // clear the search to show all snippets including the new one
-      if (searchInput.trim()) {
-        const normalizedQuery = searchInput.toLowerCase().trim();
-        const contentMatch = text.toLowerCase().includes(normalizedQuery);
-        const sourceMatch = (sourceApp?.name || 'Clipboard').toLowerCase().includes(normalizedQuery);
-        const tagMatch = tags.some(tag => tag.toLowerCase().includes(normalizedQuery));
-        
-        if (contentMatch || sourceMatch || tagMatch) {
-          // Clear search if the new snippet matches the current search
-          setSearchInput('');
-          setFilteredSnippets([]);
-          setIsFiltering(false);
-        }
-      }
+
+      setIsDemoMode(false);
     };
 
     const setupListener = async () => {
@@ -2691,8 +2482,13 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
             )}
           </span>
           <span className="app-source">
-            {source}
+            {source} {/* This now shows the app name correctly */}
           </span>
+          {'path' in snippet && snippet.path && <span className="path">{snippet.path}</span>}
+          {'handle' in snippet && snippet.handle && <span className="handle">{snippet.handle}</span>}
+          {'author' in snippet && snippet.author && <span className="author">by {snippet.author}</span>}
+          {'title' in snippet && snippet.title && <span className="title">{snippet.title}</span>}
+          {'contact' in snippet && snippet.contact && <span className="contact">from {snippet.contact}</span>}
         </div>
         <div className="snippet-time">{timestamp}</div>
       </div>
@@ -2794,13 +2590,7 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
       
       case 'text':
         const hasNewlines = content.includes('\n');
-        const isCodeLike = looksLikeCode(content);
-        const textContentClass = hasNewlines 
-          ? isCodeLike 
-            ? "text text-multiline code-style" 
-            : "text text-multiline" 
-          : "text";
-        
+        const textContentClass = hasNewlines ? "text text-multiline" : "text";
         return (
           <CardLayout>
             {hasNewlines ? (
@@ -2816,10 +2606,9 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
         );
       
       case 'message':
-        const isMessageCodeLike = looksLikeCode(content);
         return (
           <CardLayout>
-            <div className={`snippet-content message ${isMessageCodeLike ? 'code-style' : ''}`}>
+            <div className={`snippet-content message`}>
               {content}
             </div>
           </CardLayout>
@@ -2838,7 +2627,7 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
         return (
           <CardLayout>
             <a href={content} className="snippet-content link" target="_blank" rel="noopener noreferrer">
-              {content}
+              {(snippet as LinkSnippet).title || content}
             </a>
           </CardLayout>
         );
@@ -2957,24 +2746,14 @@ Do not include any hardcoded patterns or assumptions. Focus on deeply understand
 
   // Fix the processCommandInput function
   const processCommandInput = async (value: string) => {
-    console.log("Processing command:", value);
-    
     // Reset state when changing command
     setSearchInput(value);
-    
-    // Reset parsedFilters if we're starting with a different command
-    // This ensures previous filters don't interfere with new commands
-    if (value.startsWith('/') && !value.includes(searchInput)) {
-      setParsedFilters(null);
-    }
     
     if (value.startsWith('/')) {
       // Handle date command
       if (value.startsWith('/date')) {
         const dateQuery = value.substring(5).trim();
         if (dateQuery) {
-          // Reset parsedFilters to ensure no lingering filters
-          setParsedFilters(null);
           const processedQuery = await processDateQueryWithAI(dateQuery);
           console.log('Processed date query:', processedQuery);
         } else {
@@ -2987,39 +2766,34 @@ Do not include any hardcoded patterns or assumptions. Focus on deeply understand
       // Handle type command
       if (value.startsWith('/type')) {
         const typeQuery = value.substring(5).trim();
-        
-        // Always reset parsedFilters to ensure a clean state
-        setParsedFilters(null);
-        
         if (typeQuery) {
-          console.log("Processing type query:", typeQuery);
-          
           // Use AI to understand the type query
-          const filters = await processTypeQueryWithAI(typeQuery);
+          const parsedFilters = await processTypeQueryWithAI(typeQuery);
           
-          // Make sure we update the UI even if it's the same type as before
-          if (filters) {
-            console.log("Setting parsed filters:", filters);
-            setParsedFilters(filters); // This should trigger a re-render
-          } else {
-            console.log("No filters returned from AI processing");
-            setParsedFilters(null);
+          // Directly filter snippets based on the parsed filters
+          if (parsedFilters) {
+            // const filteredResults = capturedSnippets.filter(snippet => 
+            //   matchesTypeQuery(snippet, parsedFilters)
+            // );
+            // REMOVED incorrect setCapturedSnippets call
+            return; // Rely on useMemo hook update
           }
         } else {
           // Reset filters if no query
           setParsedFilters(null);
+          // REMOVED incorrect setCapturedSnippets call
+          return; // Rely on useMemo hook update
         }
-        return;
       }
       
       // Handle app command
       if (value.startsWith('/app')) {
         // Process app filter
         const appQuery = value.substring(4).trim();
-        // Reset parsedFilters to ensure no lingering filters
-        setParsedFilters(null);
         if (appQuery) {
           // Filter logic will be handled by useMemo reacting to searchInput change
+          // const filtered = capturedSnippets.filter(snippet => matchesAppQuery(snippet, appQuery));
+          // REMOVED incorrect setCapturedSnippets call
           return; // Rely on useMemo hook update
         }
       }
@@ -3027,8 +2801,6 @@ Do not include any hardcoded patterns or assumptions. Focus on deeply understand
       // Handle smart command (AI query understanding)
       if (value.startsWith('/smart')) {
         const smartQuery = value.substring(6).trim();
-        // Reset parsedFilters to ensure no lingering filters
-        setParsedFilters(null);
         if (smartQuery) {
           await processSmartQueryWithAI(smartQuery);
         }
@@ -3037,24 +2809,21 @@ Do not include any hardcoded patterns or assumptions. Focus on deeply understand
       
       // Handle favorite command
       if (value.startsWith('/fav')) {
-        // Reset parsedFilters to ensure no lingering filters
-        setParsedFilters(null);
-        // Filter logic will be handled by useMemo reacting to activeView change
+        // Filter logic will be handled by useMemo reacting to activeView change (needs adjustment in Sidebar/view logic if /fav is typed directly)
+        // For now, just setting activeView seems more appropriate than direct filtering here
         setActiveView('favorites'); // Assuming this triggers useMemo correctly
-        return;
+        // const favSnippets = capturedSnippets.filter(snippet => snippet.isFavorite);
+        // REMOVED incorrect setCapturedSnippets call
+        return; // Rely on useMemo hook update
       }
       
       // Handle custom commands that appear in dropdown
       if (value === '/newest') {
-        // Reset parsedFilters to ensure no lingering filters
-        setParsedFilters(null);
         setSortType('newest');
         return;
       }
       
       if (value === '/oldest') {
-        // Reset parsedFilters to ensure no lingering filters
-        setParsedFilters(null);
         setSortType('oldest');
         return;
       }
@@ -3108,12 +2877,9 @@ Do not include any hardcoded patterns or assumptions. Focus on deeply understand
     console.log("Performing real-time semantic search:", query);
     
     if (!query || query.length < 2) {
-      setIsFiltering(false);
-      setFilteredSnippets([]);
+      setCapturedSnippets(loadInitialSnippets());
       return;
     }
-    
-    setIsFiltering(true);
     
     // Normalize the query for comparison
     const normalizedQuery = query.toLowerCase().trim();
@@ -3219,40 +2985,277 @@ Do not include any hardcoded patterns or assumptions. Focus on deeply understand
     // If no results with high relevance, fallback to more permissive matching
     if (relevantSnippets.length === 0) {
       const basicMatches = basicTextMatch(capturedSnippets, normalizedQuery);
-      setFilteredSnippets(basicMatches);
+      setCapturedSnippets(basicMatches);
     } else {
-      setFilteredSnippets(relevantSnippets);
+      setCapturedSnippets(relevantSnippets);
     }
   }, 150); // debounce for better performance
 
-  // Enhanced function to handle search input changes with real-time semantic analysis
+  // Add a debug function to show directly what's being matched
+  const debugTypeMatch = (query: string, snippets: Snippet[]): void => {
+    console.log(`Debug type matching for: "${query}"`);
+    
+    // Simple direct keyword matching for immediate results
+    const lowerQuery = query.toLowerCase();
+    const keyTerms = {
+      'code': ['code', 'snippet', 'function', 'programming', 'script'],
+      'link': ['link', 'url', 'website', 'web', 'http'],
+      'text': ['text', 'plain text', 'note', 'message'],
+      'image': ['image', 'picture', 'photo', 'screenshot'],
+      'error': ['error', 'exception', 'failed', 'warning'],
+      'login': ['login', 'auth', 'sign in', 'credentials']
+    };
+    
+    // Find matching type based on keywords
+    let matchedTypes: string[] = [];
+    Object.entries(keyTerms).forEach(([type, terms]) => {
+      if (terms.some(term => lowerQuery.includes(term))) {
+        matchedTypes.push(type);
+      }
+    });
+    
+    console.log(`Detected types from query: ${matchedTypes.join(', ') || 'none'}`);
+    
+    // Show matching snippets for each detected type
+    snippets.forEach((snippet, index) => {
+      let matches = false;
+      matchedTypes.forEach(type => {
+        if (matchesSimpleType(snippet, type)) {
+          matches = true;
+        }
+      });
+      
+      if (matches || matchedTypes.length === 0) {
+        console.log(`Snippet ${index + 1} (${snippet.type}): ${snippet.content.substring(0, 30)}... MATCHES`);
+      }
+    });
+  };
+  
+  // Simplified content type matching for better results
+  const matchesSimpleType = (snippet: Snippet, type: string): boolean => {
+    // Direct type match first
+    if (snippet.type.toLowerCase() === type.toLowerCase()) {
+      return true;
+    }
+    
+    // Check tags
+    if (snippet.tags.some(tag => tag.toLowerCase() === type.toLowerCase())) {
+      return true;
+    }
+    
+    // Content-based detection
+    const content = snippet.content.toLowerCase();
+    switch(type.toLowerCase()) {
+      case 'code':
+        return looksLikeCode(content) || 
+               content.includes('function') || 
+               content.includes('const ') ||
+               content.includes('var ') ||
+               content.includes('let ') ||
+               content.includes('class ') ||
+               content.includes('<div') ||
+               content.includes('import ') ||
+               content.includes('return ');
+      
+      case 'link':
+      case 'url':
+        return content.includes('http') || 
+               content.includes('www.') ||
+               content.startsWith('https:') ||
+               /\.[a-z]{2,}\//i.test(content);
+      
+      case 'image':
+        return content.includes('.jpg') ||
+               content.includes('.png') ||
+               content.includes('.gif') ||
+               content.includes('image');
+      
+      case 'error':
+        return content.includes('error') ||
+               content.includes('failed') ||
+               content.includes('exception');
+      
+      case 'text':
+        // Text is our fallback if it's not anything else
+        return !looksLikeCode(content) && 
+               !content.includes('http') &&
+               !content.includes('error:');
+    }
+    
+    return false;
+  };
+  
+  // Update the handleSearchInputChange function to use the simplified matching
   const handleSearchInputChange = async (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const value = e.target.value;
-    const previousValue = searchInput;
-    
-    // Set the input value first
     setSearchInput(value);
     
-    // If we're clearing a command input, also reset the parsedFilters
-    if (previousValue.startsWith('/') && (value === '' || !value.startsWith('/'))) {
-      console.log("Clearing command input and resetting filters");
-      setParsedFilters(null);
-      setProcessedDateQuery(null);
-      setIsFiltering(false);
-      setFilteredSnippets([]);
-    }
-    
-    // Early return if query is empty or just being initialized
-    if (!value.trim()) {
-      setIsFiltering(false);
-      setFilteredSnippets([]);
-      setParsedFilters(null);
-      return;
+    // Debug the type matching if type command is used
+    if (value.toLowerCase().startsWith('/type')) {
+      const query = value.replace(/^\/type\s+/, '').trim();
+      debugTypeMatch(query, capturedSnippets);
     }
 
-    // If the user starts with a slash, it's a command
+    // If command handling is enabled, check for command prefixes
     if (value.startsWith('/')) {
+      // Process commands
       await processCommandInput(value);
+    } else {
+      // Not a command, just do regular search
+      debouncedSearch(value);
+    }
+  };
+  
+  // Update the processTypeQueryWithAI function to use simplified matching
+  const processTypeQueryWithAI = async (query: string): Promise<ParsedFilters | null> => {
+    console.log('Processing type query with AI:', query);
+    setIsSearching(true);
+
+    try {
+      // Normalize the query by removing the /type command if present
+      const normalizedQuery = query.replace(/^\/type\s+/, '').trim();
+      
+      if (!normalizedQuery) {
+        setIsSearching(false);
+        return null;
+      }
+
+      // For immediate response, do direct keyword matching first
+      const lowerQuery = normalizedQuery.toLowerCase();
+      const keyTerms = {
+        'code': ['code', 'snippet', 'function', 'programming', 'script'],
+        'link': ['link', 'url', 'website', 'web', 'http'],
+        'text': ['text', 'plain text', 'note', 'message'],
+        'image': ['image', 'picture', 'photo', 'screenshot'],
+        'error': ['error', 'exception', 'failed', 'warning'],
+        'login': ['login', 'auth', 'sign in', 'credentials']
+      };
+      
+      // Find matching type based on keywords
+      let directMatchTypes: string[] = [];
+      Object.entries(keyTerms).forEach(([type, terms]) => {
+        if (terms.some(term => lowerQuery.includes(term))) {
+          directMatchTypes.push(type);
+        }
+      });
+      
+      if (directMatchTypes.length > 0) {
+        console.log(`Fast-path direct type match: ${directMatchTypes.join(', ')}`);
+        
+        // Return immediately with simple filter for better responsiveness
+        const parsedFilters: ParsedFilters = {
+          contentType: directMatchTypes[0],
+          alternativeTypes: directMatchTypes.slice(1),
+          keywords: normalizedQuery.split(' ')
+            .filter(word => word.length > 3)
+            .filter(word => !directMatchTypes.some(type => word.toLowerCase().includes(type.toLowerCase())))
+        };
+        
+        setIsSearching(false);
+        return parsedFilters;
+      }
+
+      // Fallback to AI processing if direct matching doesn't find anything
+      // ... existing AI call code ...
+
+      // Get a sample of current clipboard items to provide context (limit to 5 items)
+      const contextSnippets = capturedSnippets.slice(0, 5).map(snippet => ({
+        type: snippet.type,
+        contentPreview: snippet.content.substring(0, 100) + (snippet.content.length > 100 ? '...' : ''),
+        timestamp: snippet.timestamp,
+        tags: snippet.tags
+      }));
+
+      // Make a request to the AI API for semantic understanding
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GROQ_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: 'llama3-70b-8192',
+          messages: [
+            {
+              role: 'system',
+              content: `You are an advanced AI assistant for a clipboard manager application that helps users filter and find their clipboard history.
+
+CONTEXT ABOUT THE APP:
+- Users can search their clipboard history using natural language queries
+- Available content types include: code, text, url/link, image, quote, tweet, etc.
+- Code snippets can be in various programming languages
+- Content can be from different apps (Chrome, VS Code, etc.)
+- Users can filter by time (today, yesterday, last week) or specific dates
+
+YOUR TASK:
+Analyze the user's query and extract structured filtering criteria with extreme precision. Pay special attention to:
+
+1. Identifying the precise content type they're looking for
+2. Understanding programming language specifications for code
+3. Recognizing time references and source applications
+4. Extracting meaningful keywords about content
+
+CURRENT CLIPBOARD CONTEXT (to help understand relative content):
+${JSON.stringify(contextSnippets, null, 2)}
+
+Current date/time: ${new Date().toISOString()}
+
+IMPORTANT: Return ONLY a valid JSON object with the following structure:
+{
+  "contentType": string | null,           // Primary content type (code, text, link/url, image, etc.)
+  "alternativeTypes": string[] | null,    // Other possible content types the query might refer to
+  "programmingLanguage": string | null,   // If code, what language (javascript, python, html, etc.)
+  "dateFilter": {                         // Time range filter
+    "from": ISO date string | null,       // Start date (inclusive)
+    "to": ISO date string | null,         // End date (inclusive)
+    "relative": string | null             // Description like "today", "yesterday", "last week"
+  },
+  "sourceApp": string | null,             // Source application name
+  "keywords": string[] | null,            // Important content keywords
+  "confidence": number,                   // 0-1 score of confidence in the interpretation
+  "interpretedQuery": string              // A brief explanation of how you interpreted the query
+}`
+            },
+            {
+              role: 'user',
+              content: normalizedQuery
+            }
+          ],
+          temperature: 0.1,
+          max_tokens: 1024,
+          response_format: { type: 'json_object' }
+        })
+      });
+
+      const data = await response.json();
+      
+      if (!data.choices || !data.choices[0]?.message?.content) {
+        console.error('No content in AI response:', data);
+        setIsSearching(false);
+        return null;
+      }
+
+      const aiResponse = JSON.parse(data.choices[0].message.content);
+      console.log('AI response:', aiResponse);
+      
+      // Convert AI response to ParsedFilters format
+      const parsedFilters: ParsedFilters = {};
+      
+      // Handle content type with alternatives for flexible matching
+      if (aiResponse.contentType) {
+        parsedFilters.contentType = aiResponse.contentType.toLowerCase();
+        
+        // Add alternative type matches
+        if (aiResponse.alternativeTypes && Array.isArray(aiResponse.alternativeTypes)) {
+          parsedFilters.alternativeTypes = aiResponse.alternativeTypes.map((t: string) => t.toLowerCase());
+        }
+      }
+      
+      // Get current date for relative date processing
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      processCommandInput(value);
       return;
     }
     
