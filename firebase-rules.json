@@ -1,0 +1,14 @@
+{
+  "rules": {
+    ".read": "auth == null",
+    ".write": "auth == null",
+    "folders": {
+      ".read": true,
+      ".write": true,
+      "$folderId": {
+        ".read": true,
+        ".write": true
+      }
+    }
+  }
+} 

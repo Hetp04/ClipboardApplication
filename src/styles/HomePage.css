@@ -437,4 +437,16 @@ body {
     flex-direction: column; /* Stack steps vertically */
     gap: 0.5rem;
   }
+}
+
+/* Add styles for the date badge */
+.date-badge {
+  display: inline-block;
+  background-color: #4f46e5;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  margin-top: 8px;
 } 

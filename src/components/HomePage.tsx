@@ -17,6 +17,7 @@ const HomePage = () => {
         <div className="brand">
           <h1 className="logo">SnipStack</h1>
           <p className="tagline">Your second brain for everything you copy</p>
+          <span className="date-badge">April - present</span>
         </div>
         
         <div className="info-content">

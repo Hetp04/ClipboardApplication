@@ -5,6 +5,8 @@ import { listen } from "@tauri-apps/api/event";
 import '../styles/MainScreen.css';
 import hljs from 'highlight.js'; // Use standard highlight.js import
 import Sidebar from './Sidebar'; // Import the Sidebar component
+import * as chrono from 'chrono-node'; // Import chrono library for date parsing with named import
+import FolderUI from './FolderUI'; // Import the FolderUI component
 
 // Define types for snippets
 interface BaseSnippet {
@@ -133,88 +135,38 @@ const formatTimestamp = (date: Date): string => {
 
 // Improved heuristic check for code patterns with more robust detection
 const looksLikeCode = (text: string): boolean => {
-  // Skip very short text (likely not code)
-  if (text.length < 10) return false;
-
-  // Negative patterns (strong indicators of natural language)
-  const naturalLanguagePatterns = [
-    /\b(the|a|an|and|or|but|because|therefore|however|although|nevertheless)\b/gi, // Common English conjunctions/articles
-    /\?{1,3}\s*$|\!{1,3}\s*$/m, // Question/exclamation marks at end of lines
-    /\b(I|we|you|he|she|they)\s+(am|are|is|was|were|have|has|had)\b/i, // Common pronoun+verb combinations
-    /\b(please|thanks|thank you|sincerely|regards)\b/i, // Conversational/email phrases
-    /\b(what|when|where|why|how)\s+(is|are|do|does)\b/i, // Question structures
-  ];
-  
-  // Count natural language indicators
-  let naturalLanguageScore = 0;
-  naturalLanguagePatterns.forEach(pattern => {
-    if (pattern.test(text)) naturalLanguageScore++;
-  });
-  
-  // If at least 2 strong natural language indicators and not a large text block, assume it's not code
-  if (naturalLanguageScore >= 2 && text.length < 200) return false;
-  
-  // Definitive code patterns (strong indicators of actual code)
-  const hasDefinitiveCodePatterns = [
-    /\bfunction\s+\w+\s*\([^)]*\)\s*\{/i, // function declarations with brackets
-    /\bclass\s+\w+\s*(\extends\s+\w+)?\s*\{/i, // class declarations
-    /\bimport\s+[\w{},\s*]+\s+from\s+['"]/i, // JS/TS import statements
-    /\brequire\s*\(\s*['"]/i, // Node.js require statements
-    /\bdef\s+\w+\s*\([^)]*\)\s*:/i, // Python function definition
-    /^\s*from\s+[\w.]+\s+import\s+[\w,\s*]+$/m, // Python import
-    /<\w+(\s+\w+\s*=\s*["'][^"']*["'])*\s*>.*<\/\w+>/s, // HTML tags with potential attributes
-    /\s*@\w+(\([^)]*\))?\s*$/m, // Decorators/annotations (Java, Python, TS)
-    /\b(public|private|protected)\s+(static\s+)?\w+\s+\w+\s*\(/i, // Java/C# method declarations
-    /\bconst\s+\w+\s*=\s*\(?.*=>.*\)?;?$/m, // Arrow functions with assignment
-    /^\s*if\s*\([^)]*\)\s*[\{:].*$/m, // if statements
-    /^\s*for\s*\([^)]*\)\s*[\{:].*$/m, // for loops
-    /^\s*while\s*\([^)]*\)\s*[\{:].*$/m, // while loops
-    /^\s*switch\s*\([^)]*\)\s*\{.*$/m, // switch statements
-  ].some(pattern => pattern.test(text));
-  
-  // If we find any definitive code pattern, it's very likely code
-  if (hasDefinitiveCodePatterns) return true;
-  
-  // Basic code syntax checks (less definitive but still indicative)
-  const hasBrackets = /[\{\}\[\]\(\)]/.test(text);
-  const hasKeywordsOrSymbols = /\b(function|class|def|import|export|const|let|var|return|if|else|switch|case|break|continue|try|catch|finally|throw|for|while|do|in|of|new|this|super|async|await|static|void|null|undefined|true|false|=>|===|!==|&&|\|\|)\b/i.test(text);
-  const hasIndentation = /^\s{2,}|\t+/m.test(text);
-  const hasTags = /<\/?[a-zA-Z][^>]*>/.test(text);
-  const hasComments = /\/\/.*$|\/\*[\s\S]*?\*\/|#.*$/m.test(text);
-  const hasAssignmentOperations = /(^|\s)(\w+)\s*[=:]\s*[^;:,)]*[;\n]/m.test(text);
-  
-  // Check if multiple lines exist with consistent formatting
-  const lines = text.split("\n");
-  const multiLine = lines.length > 2; // Require at least 3 lines to be more certain
-  
-  // Check for consistent indentation (strong code indicator)
-  let hasConsistentIndent = false;
-  if (multiLine) {
-    // Count lines with leading spaces/tabs
-    const indentedLines = lines.filter(line => /^\s+\S/.test(line)).length;
-    hasConsistentIndent = indentedLines >= 2; // At least 2 indented lines
+  // Avoid treating error messages as code
+  if (text.includes("Failed to load resource") || 
+      text.includes("Error processing query") ||
+      text.includes("(Bad Request)") ||
+      text.includes("HTTP status code")) {
+    return false;
   }
   
-  // Check for semicolons or other statement terminators
-  const hasStatementTerminators = /;$|\)$|\{$|\}$/m.test(text);
-  
-  // Comprehensive scoring system
-  let score = 0;
-  if (hasBrackets) score += 1;
-  if (hasKeywordsOrSymbols) score += 2;
-  if (multiLine && hasIndentation) score += 2;
-  if (hasTags) score += 2;
-  if (hasComments) score += 2;
-  if (hasAssignmentOperations) score += 1;
-  if (hasConsistentIndent) score += 2;
-  if (hasStatementTerminators) score += 1;
-  
-  // Reduce score based on natural language indicators
-  score = Math.max(0, score - naturalLanguageScore);
-  
-  // Consider it code if the score is high enough
-  // Higher threshold for single line (to avoid false positives)
-  return multiLine ? (score >= 3) : (score >= 4);
+  // Check for common code patterns
+  const codePatterns = [
+    // Function definitions
+    /function\s+\w+\s*\(/i,
+    // Method definitions
+    /\w+\s*\(\s*\)\s*{/i,
+    // Class definitions
+    /class\s+\w+/i,
+    // Variable declarations
+    /(const|let|var)\s+\w+\s*=/i,
+    // Import statements
+    /import\s+[\w{},\s*]+\s+from/i,
+    // HTML tags pairs
+    /<\w+[^>]*>[\s\S]*?<\/\w+>/i,
+    // Self-closing HTML tags
+    /<\w+[^>]*\/>/i,
+    // CSS rules
+    /\.\w+\s*{[^}]+}/i,
+    // JavaScript objects
+    /{\s*\w+:\s*[^{}]+}/i,
+  ];
+
+  // Return true if any code pattern is found
+  return codePatterns.some(pattern => pattern.test(text));
 };
 
 // Function to try to detect language with highlight.js
@@ -415,31 +367,112 @@ const NotesInputSection = ({ snippet, addNote, removeNote }: {
   );
 };
 
-// Helper function to load snippets initially
 const loadInitialSnippets = (): Snippet[] => {
-  console.log('[Load] Attempting to load initial snippets from localStorage...');
   try {
-    const savedSnippetsJSON = localStorage.getItem('saved_snippets');
-    console.log('[Load] Raw data from localStorage:', savedSnippetsJSON ? savedSnippetsJSON.substring(0, 100) + '...' : 'null');
-    if (savedSnippetsJSON) {
-      const savedSnippets = JSON.parse(savedSnippetsJSON) as Snippet[];
-      console.log(`[Load] Successfully parsed ${savedSnippets.length} snippets.`);
-      return savedSnippets;
+    console.log('[Load] Attempting to load snippets from localStorage...');
+    const savedSnippets = localStorage.getItem('saved_snippets');
+    if (savedSnippets) {
+      const parsedSnippets = JSON.parse(savedSnippets) as Snippet[];
+      console.log(`[Load] Successfully loaded ${parsedSnippets.length} snippets from localStorage.`);
+      return parsedSnippets;
+    } else {
+      console.log('[Load] No saved snippets found in localStorage.');
+      return [];
     }
-    console.log("[Load] No saved snippets found.");
   } catch (error) {
-    console.error("[Load] Error parsing snippets from localStorage:", error);
+    console.error('❌ [Load] Error loading snippets from localStorage:', error);
+    return []; // Return empty array if not found or error occurs
   }
-  return []; // Return empty array if not found or error occurs
 };
+
+interface ParsedFilters {
+  keywords?: string[];
+  contentType?: string;
+  alternativeTypes?: string[]; // Added for AI-based type matching
+  codeContext?: {
+    language?: string;
+    functionality?: string;
+    visualElements?: string[];
+    algorithm?: string;
+    problem?: string;
+    output?: string;
+  };
+  source?: string;
+  dateContext?: {
+    from: string;
+    to: string;
+    fromTime?: string;
+    toTime?: string;
+    hasTimeComponent?: boolean;
+  };
+  // Keep for backward compatibility 
+  date?: {
+    from: string;
+    to: string;
+  };
+  // Keep for backward compatibility
+  type?: string;
+  // Keep for backward compatibility
+  app?: string;
+  attributes?: {
+    favorite?: boolean;
+  };
+  searchTerms?: {
+    term: string;
+    importance?: number;
+    alternatives?: string[];
+    partialMatching?: boolean;
+  }[];
+  understanding?: {
+    userIntent: string;
+    searchType: 'code' | 'text' | 'link' | 'image' | 'general';
+    codeRelated: boolean;
+  };
+  codeAnalysis?: {
+    functionality: string;
+    possibleSyntaxPatterns?: string[];
+    expectedOutput: string;
+    relatedConcepts?: string[];
+  };
+}
 
 const MainScreen: React.FC = () => {
   const navigate = useNavigate();
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [capturedSnippets, setCapturedSnippets] = useState<Snippet[]>(loadInitialSnippets());
+  // Add a new state for filtered snippets
+  const [filteredSnippets, setFilteredSnippets] = useState<Snippet[]>([]);
+  // Add a state to track if we're currently filtering
+  const [isFiltering, setIsFiltering] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState('');
+  const [activeView, setActiveView] = useState<'all' | 'favorites' | 'tags' | 'trash'>('all');
+  const [selectedApp, setSelectedApp] = useState('all');
+  const [isAppFilterOpen, setIsAppFilterOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  
+  // Smart search state variables
+  const [isSmartSearch, setIsSmartSearch] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [processedDateQuery, setProcessedDateQuery] = useState<string | null>(null);
+  const [isCommandsDropdownOpen, setIsCommandsDropdownOpen] = useState(false);
+  
+  // Enhanced structured search filters
+  const [parsedFilters, setParsedFilters] = useState<ParsedFilters | null>(null);
+  
+  // For date sorting
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
-  const [selectedApp, setSelectedApp] = useState<string>('all');
+  const [sortType, setSortType] = useState<'newest' | 'oldest'>('newest');
+
+  const sortByNewest = (a: Snippet, b: Snippet) => {
+    return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+  };
+  
+  const sortByOldest = (a: Snippet, b: Snippet) => {
+    return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+  };
+  
+  // Additional state and refs that were removed
   const lastCaptureRef = useRef<{ text: string, timestamp: number, fromCopyButton: boolean }>({
     text: '',
     timestamp: 0,
@@ -447,21 +480,264 @@ const MainScreen: React.FC = () => {
   });
   const hasLoadedRef = useRef(false);
   const [editingNotesIds, setEditingNotesIds] = useState<string[]>([]);
-  // @ts-ignore - Used in other parts of the component
   const [currentNote, setCurrentNote] = useState('');
   const noteInputRef = useRef<HTMLInputElement>(null);
-  const [activeView, setActiveView] = useState<'all' | 'favorites' | 'tags' | 'trash'>('all');
-  const [isAppFilterOpen, setIsAppFilterOpen] = useState(false); // Add state for custom dropdown
-  const [searchInput, setSearchInput] = useState(''); // Add state for search input
-  const [isSmartSearch, setIsSmartSearch] = useState(false); // Add state for smart search
-  const [dateFilter, setDateFilter] = useState<{ from: string | null, to: string | null }>({ from: null, to: null }); // Add state for date filtering
 
-  // Groq API Key (Ideally use environment variables)
-  const GROQ_API_KEY = "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";
+  // Groq API Key using environment variables with fallback
+  const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY || "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";
 
-  // Add state for sidebar
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // Helper function to check if a word is a stop word
+  const isStopWord = (word: string): boolean => {
+    const stopWords = ['the', 'and', 'for', 'with', 'that', 'this', 'are', 'from', 'your', 'have', 'been', 'what', 'where', 'when', 'who', 'why', 'how', 'some', 'hey', 'hello', 'hi', 'please', 'can', 'could', 'would', 'should', 'may', 'might', 'will', 'shall'];
+    return stopWords.includes(word);
+  };
+
+  // Helper function to extract significant words from a query
+  const extractSignificantWords = (query: string): string[] => {
+    return query
+      .toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .split(/\s+/)
+      .filter(word => word.length > 2 && !isStopWord(word));
+  };
   
+  // Basic text matching function for simpler searches
+  const basicTextMatch = (snippets: Snippet[], searchTerm: string): Snippet[] => {
+    return snippets.filter(snippet => {
+      const content = snippet.content.toLowerCase();
+      const source = snippet.source.toLowerCase();
+      const sourceApp = snippet.sourceApp?.name?.toLowerCase() || '';
+      const tags = snippet.tags.map(tag => tag.toLowerCase());
+      
+      // Direct match for exact terms
+      if (content.includes(searchTerm) || 
+          source.includes(searchTerm) || 
+          sourceApp.includes(searchTerm) || 
+          tags.some(tag => tag.includes(searchTerm))) {
+        return true;
+      }
+      
+      // Extract significant words and match if enough of them appear
+      const significantWords = extractSignificantWords(searchTerm);
+      if (significantWords.length > 0) {
+        const matchCount = significantWords.filter(word => 
+          content.includes(word) || 
+          source.includes(word) || 
+          sourceApp.includes(word) || 
+          tags.some(tag => tag.includes(word))
+        ).length;
+        
+        // Match if at least half the significant words are found
+        if (matchCount >= Math.ceil(significantWords.length * 0.5)) {
+          return true;
+        }
+      }
+      
+      return false;
+    });
+  };
+
+  // Helper function to get the date of the last occurrence of a specific day of the week
+  // day: 0 for Sunday, 1 for Monday, ..., 6 for Saturday
+  const getLastDayOfWeek = (day: number): Date => {
+    const today = new Date();
+    const result = new Date(today);
+    const todayDay = today.getDay();
+    
+    // Calculate days to subtract to get to the previous occurrence of the target day
+    let daysToSubtract = todayDay - day;
+    if (daysToSubtract <= 0) {
+      daysToSubtract += 7; // Go back to previous week if target day is today or in the future
+    }
+    
+    result.setDate(today.getDate() - daysToSubtract);
+    return result;
+  };
+
+  // Helper function to extract date from timestamp - KEEP THIS ONE
+  const getDateFromTimestamp = (timestamp: string): Date => {
+    try {
+      // Parse direct format first (e.g., "2023-04-30T12:34:56")
+      const directDate = new Date(timestamp);
+      if (!isNaN(directDate.getTime())) {
+        return directDate;
+      }
+      
+      // Try to extract from formatted string (e.g., "April 30, 2023 · 12:34 PM")
+      const dateRegex = /(\w+\s+\d+,\s+\d{4})/;
+      const match = timestamp.match(dateRegex);
+      
+      if (match && match[1]) {
+        const extractedDate = new Date(match[1]);
+        if (!isNaN(extractedDate.getTime())) {
+          return extractedDate;
+        }
+      }
+      
+      // Last resort - current date
+      return new Date();
+    } catch (e) {
+      console.error("Error parsing timestamp:", e);
+      return new Date(); // Fallback to current date
+    }
+  };
+
+  // Helper function to analyze query intent - MOVED UP
+  const analyzeQueryIntent = (query: string): {
+    lookingFor: boolean;
+    isQuestion: boolean;
+    contentType?: string;
+    subjects?: string[];
+    appSource?: string;
+  } => {
+    const result = {
+      lookingFor: false,
+      isQuestion: false,
+      contentType: undefined as string | undefined,
+      subjects: undefined as string[] | undefined,
+      appSource: undefined as string | undefined
+    };
+    
+    // Check if it's a "looking for" query
+    if (query.match(/\b(looking for|find|search for|show me|get me|need|want)\b/i)) {
+      result.lookingFor = true;
+    }
+    
+    // Check if it's a question
+    if (query.match(/\b(what|where|which|who|how|when|is|are|can|does|do)\b/i) || query.includes('?')) {
+      result.isQuestion = true;
+    }
+    
+    // Detect content type
+    if (query.match(/\b(link|url|website|webpage|site)\b/i)) {
+      result.contentType = 'link';
+    } else if (query.match(/\b(code|script|function|class|programming)\b/i)) {
+      result.contentType = 'code';
+    } else if (query.match(/\b(text|note|message)\b/i)) {
+      result.contentType = 'text';
+    } else if (query.match(/\b(tweet|twitter)\b/i)) {
+      result.contentType = 'tweet';
+    } else if (query.match(/\b(quote|saying|phrase)\b/i)) {
+      result.contentType = 'quote';
+    }
+    
+    // Extract potential app sources
+    if (query.match(/\b(from|in|on)\s+(\w+)\b/i)) {
+      const matches = query.match(/\b(from|in|on)\s+(\w+)\b/i);
+      if (matches && matches[2]) {
+        result.appSource = matches[2].toLowerCase();
+      }
+    }
+    
+    // Extract main subjects (nouns) from the query
+    // Remove filler words and get the remaining significant terms
+    const subjects: string[] = [];
+    
+    // Special case for chat gpt links
+    if ((query.includes('chat') && query.includes('gpt')) || query.includes('chatgpt')) {
+      subjects.push('chat');
+      subjects.push('gpt');
+      subjects.push('chatgpt');
+      
+      // If specifically asking for links
+      if (query.includes('link')) {
+        result.contentType = 'link';
+      }
+    } 
+    // Special case for discord
+    else if (query.includes('discord')) {
+      subjects.push('discord');
+    }
+    // General subject extraction
+    else {
+      const words = query.split(/\s+/);
+      for (const word of words) {
+        const cleaned = word.replace(/[^\w]/g, '').toLowerCase();
+        if (cleaned.length > 3 && !isStopWord(cleaned)) {
+          subjects.push(cleaned);
+        }
+      }
+    }
+    
+    if (subjects.length > 0) {
+      result.subjects = subjects;
+    }
+    
+    return result;
+  };
+  
+  
+  // Helper function to apply AI-generated filters - MOVED UP
+  const applyAIFilters = (snippets: Snippet[], filters: any, originalQuery: string): Snippet[] => {
+    let filtered = [...snippets];
+    
+    // If we have type filter, apply it
+    if (filters.type) {
+      filtered = filtered.filter(snippet => matchesTypeQuery(snippet, filters.type));
+    }
+    
+    // If we have app filter, apply it
+    if (filters.app) {
+      filtered = filtered.filter(snippet => matchesAppQuery(snippet, filters.app));
+    }
+    
+    // If we have date filter, apply it
+    if (filters.date) {
+      const fromDate = filters.date.from ? new Date(filters.date.from) : null;
+      const toDate = filters.date.to ? new Date(filters.date.to) : null;
+      
+      filtered = filtered.filter(snippet => {
+        const snippetDate = getDateFromTimestamp(snippet.timestamp);
+        
+        if (fromDate && toDate) {
+          return snippetDate >= fromDate && snippetDate <= toDate;
+        } else if (fromDate) {
+          return snippetDate >= fromDate;
+        } else if (toDate) {
+          return snippetDate <= toDate;
+        }
+        
+        return true;
+      });
+    }
+    
+    // Apply additional attribute filters when available
+    if (filters.attributes) {
+      // Filter by programming language if specified
+      if (filters.attributes.language) {
+        filtered = filtered.filter(snippet => {
+          if (snippet.type !== 'code') return false;
+          
+          const language = filters.attributes.language.toLowerCase();
+          const detectedLanguage = detectLanguageWithHljs(snippet.content)?.toLowerCase() || '';
+          
+          return detectedLanguage.includes(language);
+        });
+      }
+      
+      // Filter by content length if specified
+      if (filters.attributes.length) {
+        filtered = filtered.filter(snippet => {
+          if (filters.attributes.length === 'short') {
+            return snippet.content.length < 300; // Arbitrary threshold for "short"
+          } else if (filters.attributes.length === 'long') {
+            return snippet.content.length >= 300; // Arbitrary threshold for "long"
+          }
+          return true;
+        });
+      }
+      
+      // Filter by favorite status if specified
+      if (filters.attributes.favorite !== undefined) {
+        filtered = filtered.filter(snippet => 
+          snippet.isFavorite === filters.attributes.favorite
+        );
+      }
+    }
+    
+    return filtered;
+  };
+
   // Toggle sidebar function
   const toggleSidebar = () => {
     setSidebarCollapsed(!sidebarCollapsed);
@@ -478,176 +754,1112 @@ const MainScreen: React.FC = () => {
 
   // Function to delete ALL snippets
   const handleDeleteAll = () => {
-    console.warn('[Delete All] Clearing all snippets from state and localStorage.');
-    // Clear the state
-    setCapturedSnippets([]);
-    // Clear localStorage
-    try {
-      localStorage.removeItem('saved_snippets');
-      console.log('[Delete All] localStorage cleared successfully.');
-    } catch (error) {
-      console.error('❌ [Delete All] Error clearing localStorage:', error);
+    if (window.confirm("Are you sure you want to delete all clipboard history? This cannot be undone.")) {
+      setCapturedSnippets([]);
     }
-    // Also clear editing state if any
-    setEditingNotesIds([]);
   };
 
   // Function to delete a snippet
   const handleDeleteSnippet = (id: string) => {
-    setCapturedSnippets(prevSnippets => {
-      const updatedSnippets = prevSnippets.filter(snippet => snippet.id !== id);
-      // Save to localStorage immediately on delete
-      saveSnippetsToLocalStorage(updatedSnippets);
-      return updatedSnippets;
-    });
+    setCapturedSnippets(prevSnippets => prevSnippets.filter(snippet => snippet.id !== id));
+    console.log(`Deleted snippet with ID: ${id}`);
   };
 
-  // Handle magic wand AI search
+  // Enhanced handleMagicSearch to toggle smart search mode
   const handleMagicSearch = async () => {
     try {
       console.log("🔮 Magic search activated");
-      const wasActive = isSmartSearch;
-      setIsSmartSearch(!isSmartSearch); // Toggle smart search mode
+      // Toggle smart search mode
+      setIsSmartSearch(!isSmartSearch);
       
-      // If enabling smart search and the search field is empty, show a hint
-      if (!wasActive && !searchInput.trim()) {
-        setSearchInput('');
-      }
-      
-      // Reset date filter when toggling off smart search
+      // Reset processed query when turning off smart search
       if (isSmartSearch) {
-        setDateFilter({ from: null, to: null });
-      }
-      
-      // Clear search input when disabling smart search
-      if (isSmartSearch && searchInput.trim()) {
-        setSearchInput('');
+        setProcessedDateQuery(null);
+        setParsedFilters(null);
       }
     } catch (error) {
       console.error("Error during magic search:", error);
     }
   };
 
-  // Check if a query likely contains date-related terms
-  const isDateRelatedQuery = (query: string): boolean => {
-    if (!query) return false;
-    
-    const dateTerms = [
-      // Days
-      'today', 'yesterday', 'tomorrow', 
-      // Time periods
-      'day', 'week', 'month', 'year', 'morning', 'afternoon', 'evening', 'night',
-      // Relative expressions 
-      'ago', 'last', 'past', 'recent', 'previous', 'next', 'coming', 'this',
-      // Day names
-      'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
-      // Month names
-      'january', 'february', 'march', 'april', 'may', 'june', 
-      'july', 'august', 'september', 'october', 'november', 'december',
-      // Date formats (regex patterns would be more precise but this covers common cases)
-      'date', 'time', 'on'
-    ];
-    
-    const queryLower = query.toLowerCase();
-    return dateTerms.some(term => queryLower.includes(term)) || 
-           /\d+(st|nd|rd|th)/.test(queryLower) || // Ordinals like 1st, 2nd, etc.
-           /\d+\/\d+/.test(queryLower) || // Date patterns like 04/30
-           /\d+[-\.]\d+/.test(queryLower); // Date patterns like 04-30 or 04.30
+  // Toggle commands dropdown
+  const toggleCommandsDropdown = () => {
+    setIsCommandsDropdownOpen(!isCommandsDropdownOpen);
   };
 
-  // Process natural language date query with Groq API
-  const processDateQuery = async (query: string) => {
-    if (!query) return;
+  // Handle command selection from dropdown
+  const handleCommandSelect = (command: string) => {
+    setSearchInput(prevInput => `${command} ${prevInput}`);
+    setIsCommandsDropdownOpen(false);
+  };
+
+  // Process a type query with AI to understand the content type
+  const processTypeQueryWithAI = async (query: string): Promise<ParsedFilters | null> => {
+    console.log('Processing type query with AI:', query);
     
+    // First set searching state to show loading indicator
+    setIsSearching(true);
+    
+    // Clear any existing filters to avoid stale state
+    setParsedFilters(null);
+
     try {
-      console.log("Processing natural language date query:", query);
+      // Normalize the query by removing the /type command if present
+      const normalizedQuery = query.replace(/^\/type\s+/, '').trim();
       
-      // Call Groq API to parse the natural language date query
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
+      if (!normalizedQuery) {
+        setIsSearching(false);
+        return null;
+      }
+
+      // Simple keyword matching for common types to avoid unnecessary API calls
+      const simpleTypes = {
+        'link': 'link',
+        'url': 'link',
+        'website': 'link',
+        'web': 'link',
+        'code': 'code',
+        'script': 'code',
+        'programming': 'code',
+        'text': 'text',
+        'note': 'text',
+        'message': 'text'
+      };
+
+      // Check if we can determine the type without API call
+      const lowerQuery = normalizedQuery.toLowerCase();
+      for (const [keyword, type] of Object.entries(simpleTypes)) {
+        if (lowerQuery === keyword || lowerQuery.startsWith(keyword + ' ') || lowerQuery.includes(' ' + keyword)) {
+          console.log(`Simple matching found type: ${type} for query: ${normalizedQuery}`);
+          
+          const simpleFilter: ParsedFilters = {
+            contentType: type
+          };
+          
+          // If it's code and we can detect a language
+          if (type === 'code') {
+            const languages = ['javascript', 'python', 'html', 'css', 'typescript', 'java', 'c++', 'c#', 'php', 'ruby', 'go', 'rust', 'swift'];
+            for (const lang of languages) {
+              if (lowerQuery.includes(lang)) {
+                simpleFilter.codeContext = { language: lang };
+                break;
+              }
+            }
+          }
+          
+          setIsSearching(false);
+          return simpleFilter;
+        }
+      }
+
+      // Continue with AI API call if simple matching didn't work
+      // [The rest of the AI API code should remain unchanged]
+
+      // Make a request to the AI API for semantic understanding
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
         headers: {
-          "Authorization": `Bearer ${GROQ_API_KEY}`,
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GROQ_API_KEY}`
         },
         body: JSON.stringify({
-          model: "llama-3.1-8b-instant",
+          model: 'llama3-70b-8192',
           messages: [
             {
-              role: "system",
-              content: `You are a natural language date parser.
-Your job is to convert casual time-related language into structured date ranges.
-Output only JSON with from and to dates in YYYY-MM-DD format. Do not include any other explanation. If the query is unclear, return null.
-Today's date is ${new Date().toISOString().split('T')[0]}.
-Use common sense when parsing relative dates - for example, "yesterday" would be a single day, "last week" would be the previous 7 days, etc.
-For ranges like "mid-April", use your best judgment to define an appropriate date range.`
+              role: 'system',
+              content: `You are an AI assistant that analyzes user queries for a clipboard manager app and extracts structured information about what the user is looking for.
+
+Your task is to parse natural language queries and return a structured JSON with filters that can be applied to clipboard items.
+
+A query might contain multiple filtering criteria such as:
+1. Content type (code, image, text, url, file)
+2. Programming language specifications (JavaScript, Python, HTML, etc.)
+3. Time references (today, yesterday, last week, specific dates)
+4. Source application references (from Chrome, copied from VS Code)
+5. Content descriptors (about machine learning, related to login)
+
+Focus on understanding the semantic intent of the query, not just matching keywords.
+
+IMPORTANT: Return ONLY a valid JSON object with the following structure:
+{
+  "contentType": string | null,           // The primary content type (code, image, text, url, file)
+  "programmingLanguage": string | null,   // If code, what language (javascript, python, html, etc)
+  "dateFilter": {                        // Time range filter
+    "from": ISO date string | null,      // Start date (inclusive)
+    "to": ISO date string | null         // End date (inclusive)
+  },
+  "sourceApp": string | null,            // Source application name
+  "keywords": string[] | null,           // Important content keywords
+  "confidence": number                   // 0-1 score of confidence in the interpretation
+}
+
+Examples:
+- For "javascript from today": Extract both the programming language and the date constraint
+- For "screenshots from yesterday": Extract both the content type (image) and the date constraint
+- For "code about authentication": Extract both the content type (code) and the keywords
+- For "urls from chrome": Extract both the content type (url) and the source application
+
+Always return an ISO date string (YYYY-MM-DD) for date references, using the current date for relative terms.
+Use null for any fields that aren't specified in the query.`
             },
             {
-              role: "user",
-              content: query
+              role: 'user',
+              content: normalizedQuery
             }
           ],
-          temperature: 0.2
+          temperature: 0.1,
+          max_tokens: 1024,
+          response_format: { type: 'json_object' }
         })
       });
-      
-      if (!response.ok) {
-        throw new Error(`Groq API error: ${response.status}`);
-      }
-      
+
       const data = await response.json();
-      const content = data.choices[0]?.message?.content;
       
-      if (!content) {
-        console.error("No content returned from Groq API");
-        return;
+      if (!data.choices || !data.choices[0]?.message?.content) {
+        console.error('No content in AI response:', data);
+        setIsSearching(false);
+        return null;
       }
+
+      const aiResponse = JSON.parse(data.choices[0].message.content);
+      console.log('AI response:', aiResponse);
+
+      // Get current date for relative date processing
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      
+      // Convert AI response to ParsedFilters format
+      const parsedFilters: ParsedFilters = {};
+      
+      // Handle content type
+      if (aiResponse.contentType) {
+        parsedFilters.contentType = aiResponse.contentType.toLowerCase();
+      }
+      
+      // Handle code type with programming language
+      if ((aiResponse.contentType === 'code' || parsedFilters.contentType === 'code') && aiResponse.programmingLanguage) {
+        if (!parsedFilters.codeContext) parsedFilters.codeContext = {};
+        parsedFilters.codeContext.language = aiResponse.programmingLanguage.toLowerCase();
+      } else if (aiResponse.programmingLanguage) {
+        // If programming language is specified but type is not 'code', set type to 'code'
+        parsedFilters.contentType = 'code';
+        if (!parsedFilters.codeContext) parsedFilters.codeContext = {};
+        parsedFilters.codeContext.language = aiResponse.programmingLanguage.toLowerCase();
+      }
+      
+      // Handle date filters with special handling for "today"
+      if (aiResponse.dateFilter && (aiResponse.dateFilter.from || aiResponse.dateFilter.to)) {
+        let fromDate = aiResponse.dateFilter.from;
+        let toDate = aiResponse.dateFilter.to;
+        
+        // If "today" is mentioned, use today's date for both from and to
+        if (normalizedQuery.toLowerCase().includes('today')) {
+          const todayStr = today.toISOString().split('T')[0];
+          fromDate = todayStr;
+          toDate = todayStr;
+        }
+        
+        parsedFilters.dateContext = {
+          from: fromDate || '1970-01-01',
+          to: toDate || new Date().toISOString().split('T')[0],
+          hasTimeComponent: false
+        };
+      }
+      
+      // Handle source app
+      if (aiResponse.sourceApp) {
+        parsedFilters.source = aiResponse.sourceApp.toLowerCase();
+      }
+      
+      // Handle keywords
+      if (aiResponse.keywords && aiResponse.keywords.length > 0) {
+        parsedFilters.searchTerms = aiResponse.keywords.map((term: string) => ({
+          term: term.toLowerCase(),
+          importance: 1,
+          partialMatching: true
+        }));
+      }
+      
+      console.log('Parsed filters:', parsedFilters);
+      
+      // Set the searching state to false before returning
+      setIsSearching(false);
+      return parsedFilters;
+    } catch (error) {
+      console.error('Error in AI processing:', error);
+      setIsSearching(false);
+      return null;
+    }
+  };
+
+  // Helper function to match a snippet by type
+  const matchesTypeQuery = (snippet: Snippet, parsedFilters: ParsedFilters | null): boolean => {
+    if (!parsedFilters) return true;
+    
+    // Start with the assumption that the snippet matches
+    let matches = true;
+    
+    // Check date context if present
+    if (parsedFilters.dateContext) {
+      const { from, to } = parsedFilters.dateContext;
+      const snippetDate = getDateFromTimestamp(snippet.timestamp);
+      const fromDate = new Date(from);
+      const toDate = new Date(to);
+      
+      // Set hours to ensure we're comparing full days
+      fromDate.setHours(0, 0, 0, 0);
+      toDate.setHours(23, 59, 59, 999);
+      
+      if (snippetDate < fromDate || snippetDate > toDate) {
+        return false; // Date doesn't match, early return
+      }
+    }
+    
+    // Check content type
+    if (parsedFilters.contentType) {
+      const type = parsedFilters.contentType;
+      
+      // Direct type match
+      if (type === 'code' && snippet.type !== 'code') {
+        // For code, check if it might be code even if not marked as such
+        const isCodeLike = looksLikeCode(snippet.content);
+        if (!isCodeLike) return false;
+      } 
+      else if (type === 'url' && snippet.type !== 'link') {
+        // For URLs, check if the content contains a URL pattern
+        const hasUrl = /https?:\/\/[^\s]+/.test(snippet.content);
+        if (!hasUrl) return false;
+      }
+      else if (type === 'image' && !/image|screenshot|picture|photo/i.test(snippet.type)) {
+        return false;
+      }
+      else if (type === 'file' && !/file|document|pdf/i.test(snippet.type)) {
+        return false;
+      }
+      else if (type === 'text' && (snippet.type === 'code' || snippet.type === 'link')) {
+        return false;
+      }
+    }
+    
+    // Check programming language for code snippets
+    if (parsedFilters.codeContext?.language && snippet.type === 'code') {
+      const lang = parsedFilters.codeContext.language.toLowerCase();
+      const detectedLang = detectLanguageWithHljs(snippet.content)?.toLowerCase() || '';
+      
+      // Use fuzzy matching for language detection
+      const langMatches = detectedLang.includes(lang) || 
+                          (lang === 'js' && detectedLang.includes('javascript')) ||
+                          (lang === 'py' && detectedLang.includes('python')) ||
+                          (lang === 'ts' && detectedLang.includes('typescript'));
+                          
+      if (!langMatches) return false;
+    }
+    
+    // Check source app
+    if (parsedFilters.source && snippet.sourceApp?.name) {
+      const sourceMatches = snippet.sourceApp.name.toLowerCase().includes(parsedFilters.source.toLowerCase());
+      if (!sourceMatches) return false;
+    }
+    
+    // Check keywords
+    if (parsedFilters.searchTerms && parsedFilters.searchTerms.length > 0) {
+      const allContentFields = [
+        snippet.content,
+        snippet.notes?.join(' ') || '',
+        snippet.source,
+        snippet.type
+      ].join(' ').toLowerCase();
+      
+      const keywordMatches = parsedFilters.searchTerms.some(searchTerm => 
+        allContentFields.includes(searchTerm.term.toLowerCase())
+      );
+      
+      if (!keywordMatches) return false;
+    }
+    
+    return matches;
+  };
+
+  // Helper function to match a specific content type
+  const matchesContentType = (snippet: Snippet, contentType: string): boolean => {
+    const aiType = contentType.toLowerCase();
+    
+    // Direct type matching - enforce strict type checking
+    // This ensures we don't mix types in search results
+    if (aiType === "url" || aiType === "link") {
+      // For URL/link types, only match items that are actually URLs
+      
+      // First check if the snippet itself has link type
+      if (snippet.type.toLowerCase() === "link") {
+        return true;
+      }
+      
+      // Check content for URL patterns
+      if (snippet.content.match(/^https?:\/\/[^\s]+$/i)) {
+        return true;
+      }
+      
+      // Check for URL-like characteristics, but be more strict
+      if (
+        // Must look like a real URL or domain
+        snippet.content.match(/^www\.[^\s]+\.[a-z]{2,}(\/|$)/i) ||
+        snippet.content.match(/^[a-z0-9-]+\.[a-z]{2,}(\/|$)/i)
+      ) {
+        return true;
+      }
+      
+      // Reject content with error messages
+      if (
+        snippet.content.includes('Failed to load') || 
+        snippet.content.includes('Error') ||
+        snippet.content.includes('error when')
+      ) {
+        return false;
+      }
+      
+      // Reject if it contains HTML/code syntax
+      if (
+        snippet.content.includes('<div') || 
+        snippet.content.includes('<span') || 
+        snippet.content.includes('<input') || 
+        snippet.content.includes('function') ||
+        snippet.content.includes('class=') ||
+        looksLikeCode(snippet.content)
+      ) {
+        return false;
+      }
+      
+      return false;
+    }
+    else if (aiType === "code") {
+      // For code content, be more specific about what counts as code
+      
+      // First check if the snippet has code type
+      if (snippet.type.toLowerCase() === "code") {
+        return true;
+      }
+      
+      // Exclude error messages that mention code but aren't code
+      if (
+        snippet.content.includes('Failed to load resource') || 
+        snippet.content.includes('Error processing query') ||
+        snippet.content.includes('(Bad Request)')
+      ) {
+        return false;
+      }
+      
+      // Check if the content looks like code
+      if (looksLikeCode(snippet.content)) {
+        return true;
+      }
+      
+      // Check specific code indicators that aren't caught by looksLikeCode
+      const hasCodeCharacteristics = 
+        // Has code fragments with balanced brackets
+        ((snippet.content.includes('{') && snippet.content.includes('}')) ||
+         (snippet.content.includes('(') && snippet.content.includes(')'))) &&
+        // Has common coding syntax
+        (snippet.content.includes('function ') ||
+         snippet.content.includes('class ') ||
+         snippet.content.includes('import ') ||
+         snippet.content.includes('const ') ||
+         snippet.content.includes('let ') ||
+         snippet.content.includes('var ') ||
+         // Has comment syntax
+         snippet.content.includes('//') ||
+         snippet.content.includes('/*') ||
+         snippet.content.includes('*/') ||
+         // Has HTML tags
+         /<[^>]*>/.test(snippet.content) ||
+         // Has indentation patterns common in code
+         /^\s{2,}[\w]/m.test(snippet.content)
+        );
+      
+      return hasCodeCharacteristics;
+    }
+    else if (aiType === "image") {
+      // For image content, check for image-specific patterns
+      
+      // Direct match with type
+      if (snippet.type.toLowerCase() === "image") {
+        return true;
+      }
+      
+      // Check for image file extensions
+      if (snippet.content.match(/\.(jpg|jpeg|png|gif|svg|webp|bmp|tiff|ico|heic)$/i)) {
+        return true;
+      }
+      
+      // Check for image URLs
+      if (snippet.content.match(/https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|svg|webp|bmp|tiff|ico)/i)) {
+        return true;
+      }
+      
+      // Check specific image content patterns
+      const imageContentPatterns = [
+        /screenshot of/i,
+        /image of/i,
+        /photo of/i,
+        /picture of/i,
+        /\.jpg$/i,
+        /\.png$/i,
+        /\.gif$/i
+      ];
+      
+      for (const pattern of imageContentPatterns) {
+        if (pattern.test(snippet.content)) {
+          return true;
+        }
+      }
+      
+      return false;
+    }
+    else if (aiType === "file") {
+      // For file content, check for file-specific patterns
+      
+      // Direct match with type
+      if (snippet.type.toLowerCase() === "file") {
+        return true;
+      }
+      
+      // Check for file extensions
+      if (snippet.content.match(/\.(pdf|docx?|xlsx?|pptx?|zip|tar|gz|rar|csv|txt|rtf|md|json|xml|mp3|mp4|mov|avi)$/i)) {
+        return true;
+      }
+      
+      // Check for file paths
+      if (snippet.content.match(/^\/[\w\/]+\.\w+$/) ||
+          snippet.content.match(/^[A-Z]:\\[\w\\]+\.\w+$/)) {
+        return true;
+      }
+      
+      // Check for specific file content patterns
+      const fileContentPatterns = [
+        /document/i,
+        /spreadsheet/i,
+        /presentation/i,
+        /pdf/i,
+        /excel/i,
+        /word document/i,
+        /powerpoint/i,
+        /zip file/i,
+        /compressed/i
+      ];
+      
+      for (const pattern of fileContentPatterns) {
+        if (pattern.test(snippet.content)) {
+          return true;
+        }
+      }
+      
+      return false;
+    }
+    else if (aiType === "text") {
+      // For text content, exclude other clearly identified types
+      
+      // Direct match with type
+      if (snippet.type.toLowerCase() === "text" || snippet.type.toLowerCase() === "message") {
+        return true;
+      }
+      
+      // Exclude content that is clearly not text
+      if (
+        looksLikeCode(snippet.content) ||
+        snippet.content.match(/^https?:\/\/[^\s]+$/) ||
+        snippet.content.match(/\.(jpg|jpeg|png|gif|svg|webp|bmp|tiff)$/i) ||
+        snippet.content.match(/\.(pdf|docx?|xlsx?|pptx?|zip|tar|gz|rar)$/i)
+      ) {
+        return false;
+      }
+      
+      // Check for text content characteristics
+      if (
+        // Has multiple sentences
+        snippet.content.match(/[.!?]\s[A-Z]/) ||
+        // Has paragraphs
+        snippet.content.includes('\n\n') ||
+        // Not very short and doesn't look like code or URL
+        (snippet.content.length > 50 && 
+         !snippet.content.includes('{') && 
+         !snippet.content.includes('<') &&
+         !snippet.content.includes('function'))
+      ) {
+        return true;
+      }
+      
+      return true; // Default to including as text if nothing else matches
+    }
+    
+    // Default fallback to type comparison if no special handler
+    return snippet.type.toLowerCase() === aiType;
+  };
+
+  // Simple helper function for date formatting
+  const formatDateForDisplay = (date: Date): string => {
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
+    });
+  };
+
+  // COMPREHENSIVE DATE PROCESSING - uses chrono to extract all possible date entities
+  const processDateQueryWithAI = async (query: string): Promise<string | null> => {
+    try {
+      console.log("💬 Processing date query:", query);
+      setIsSearching(true);
+      
+      // Define broader time periods that don't overlap
+      const timePeriods: Record<string, {start: number, end: number}> = {
+        'morning': { start: 5, end: 11 },
+        'afternoon': { start: 12, end: 17 },
+        'evening': { start: 18, end: 23 },
+        'night': { start: 0, end: 5 },
+        'midnight': { start: 0, end: 1 },
+        'noon': { start: 12, end: 13 }
+      };
+      
+      // Phase 1: Extract ALL possible dates using chrono
+      try {
+        console.log("🧠 Extracting ALL possible dates from query:", query);
+        // Use casual parsing to handle natural language
+        const results = chrono.casual.parse(query, new Date(), { forwardDate: false });
+        console.log("📊 Chrono found dates:", results);
+        
+        // If we have at least one date
+        if (results && results.length > 0) {
+          // Collect all dates - handle both single dates and multiple dates for ranges
+          const extractedDates = results.map(result => {
+            const startDate = result.start.date();
+            const endDate = result.end ? result.end.date() : null;
+            const hasTime = result.start.isCertain('hour');
+            
+            return {
+              startDate,
+              endDate,
+              hasTime
+            };
+          });
+          
+          console.log("📆 Extracted dates:", extractedDates);
+          
+          // Determine if we have a date range
+          let rangeStart: Date;
+          let rangeEnd: Date;
+          let hasTimeComponent = false;
+          
+          if (extractedDates.length === 1) {
+            // Single date mention
+            const { startDate, endDate, hasTime } = extractedDates[0];
+            rangeStart = startDate;
+            rangeEnd = endDate || startDate; // If no end date, use start date
+            hasTimeComponent = hasTime;
+          } else if (extractedDates.length > 1) {
+            // Multiple dates - likely a range like "April 30 and May 1"
+            console.log("📏 Multiple dates detected, creating date range");
+            // Find earliest and latest dates
+            const allDates = extractedDates.flatMap(d => 
+              [d.startDate, d.endDate].filter(Boolean) as Date[]
+            );
+            
+            // Sort by timestamp
+            allDates.sort((a, b) => a.getTime() - b.getTime());
+            
+            rangeStart = allDates[0];
+            rangeEnd = allDates[allDates.length - 1];
+            
+            // Check if any of the dates have time components
+            hasTimeComponent = extractedDates.some(d => d.hasTime);
+          } else {
+            // Should never happen since we checked results.length > 0
+            throw new Error("No dates found");
+          }
+          
+          // Check for time periods in the query text
+          const lowerQuery = query.toLowerCase();
+          let timePeriod: string | null = null;
+          
+          for (const period of Object.keys(timePeriods)) {
+            if (lowerQuery.includes(period) || lowerQuery.includes(`around ${period}`)) {
+              timePeriod = period;
+              break;
+            }
+          }
+          
+          // Handle time periods if chrono didn't detect specific time
+          if (!hasTimeComponent && timePeriod) {
+            const hours = timePeriods[timePeriod];
+            
+            // Set the time range
+            rangeStart.setHours(hours.start, 0, 0, 0);
+            rangeEnd.setHours(hours.end, 59, 59, 999);
+          } else if (!hasTimeComponent) {
+            // Set full day range if no specific time
+            rangeStart.setHours(0, 0, 0, 0);
+            rangeEnd.setHours(23, 59, 59, 999);
+          }
+          
+          // Format for storage
+          const fromStr = rangeStart.toISOString().split('T')[0];
+          const toStr = rangeEnd.toISOString().split('T')[0];
+          const fromTime = hasTimeComponent ? rangeStart.toISOString().split('T')[1].substring(0, 8) : undefined;
+          const toTime = hasTimeComponent ? rangeEnd.toISOString().split('T')[1].substring(0, 8) : undefined;
+          
+          // Create human-readable display string
+          let displayText = "";
+          const today = new Date();
+          const yesterday = new Date(today);
+          yesterday.setDate(yesterday.getDate() - 1);
+          
+          // Time period text
+          const timeText = timePeriod || (hasTimeComponent ? 
+            `at ${rangeStart.toLocaleTimeString('en-US', {hour: 'numeric', minute: 'numeric', hour12: true})}` : 
+            "");
+          
+          if (rangeStart.toDateString() === today.toDateString() && 
+              rangeEnd.toDateString() === today.toDateString()) {
+            displayText = timeText ? `today ${timeText}` : "today";
+          } else if (rangeStart.toDateString() === yesterday.toDateString() && 
+                     rangeEnd.toDateString() === yesterday.toDateString()) {
+            displayText = timeText ? `yesterday ${timeText}` : "yesterday";
+          } else if (rangeStart.toDateString() === rangeEnd.toDateString() || 
+                    (timePeriod === 'night' && rangeEnd.getDate() === rangeStart.getDate() + 1)) {
+            // Single day or night (which spans to next day)
+            displayText = timeText ?
+              `${formatDateForDisplay(rangeStart)} ${timeText}` :
+              formatDateForDisplay(rangeStart);
+          } else {
+            // Date range
+            displayText = `${formatDateForDisplay(rangeStart)} to ${formatDateForDisplay(rangeEnd)}`;
+            if (timeText) {
+              displayText += ` ${timeText}`;
+            }
+          }
+          
+          // Set for filtering
+          setParsedFilters(prevFilters => ({
+            ...(prevFilters || {}),
+            dateContext: {
+              from: fromStr,
+              to: toStr,
+              fromTime,
+              toTime,
+              hasTimeComponent: Boolean(hasTimeComponent)
+            }
+          }));
+          
+          setProcessedDateQuery(displayText);
+          console.log("📅 Date processed:", displayText, { 
+            fromDate: rangeStart, 
+            toDate: rangeEnd, 
+            hasTime: Boolean(hasTimeComponent),
+            timePeriod 
+          });
+          
+          setIsSearching(false);
+          return displayText;
+        } else {
+          console.log("❌ Chrono couldn't parse the date");
+        }
+      } catch (chronoError) {
+        console.error("❌ Error with chrono parsing:", chronoError);
+      }
+      
+      // STEP 2: Try direct pattern matching for common phrases
+      const timePatterns = [
+        // Yesterday morning/afternoon/evening/night
+        {regex: /yesterday\s+(morning|afternoon|evening|night|midnight|noon)/i, handler: (matches: RegExpMatchArray) => {
+          const period = matches[1].toLowerCase();
+          if (!timePeriods[period]) return null;
+          
+          const hours = timePeriods[period];
+          const today = new Date();
+          const yesterday = new Date(today);
+          yesterday.setDate(yesterday.getDate() - 1);
+          
+          const startDate = new Date(yesterday);
+          const endDate = new Date(yesterday);
+          
+          startDate.setHours(hours.start, 0, 0, 0);
+          
+          // For overnight periods like night
+          if (hours.start > hours.end) {
+            endDate.setDate(endDate.getDate() + 1); // Next day
+            endDate.setHours(hours.end, 59, 59, 999);
+          } else {
+            endDate.setHours(hours.end, 59, 59, 999);
+          }
+          
+          return {
+            from: startDate.toISOString().split('T')[0],
+            to: endDate.toISOString().split('T')[0],
+            fromTime: startDate.toISOString().split('T')[1].substring(0, 8),
+            toTime: endDate.toISOString().split('T')[1].substring(0, 8),
+            display: `yesterday ${period}`,
+            hasTimeComponent: true
+          };
+        }}
+      ];
+      
+      // Try to match additional patterns
+      const lowerQuery = query.toLowerCase();
+      for (const pattern of timePatterns) {
+        const matches = lowerQuery.match(pattern.regex);
+        if (matches) {
+          console.log("🎯 Pattern match:", matches[0]);
+          
+          const dateInfo = pattern.handler(matches);
+          if (dateInfo) {
+            console.log("📆 Pattern handler result:", dateInfo);
+            
+            // Store in filters
+            setParsedFilters(prevFilters => ({
+              ...(prevFilters || {}),
+              dateContext: {
+                from: dateInfo.from,
+                to: dateInfo.to,
+                fromTime: dateInfo.fromTime,
+                toTime: dateInfo.toTime,
+                hasTimeComponent: dateInfo.hasTimeComponent
+              }
+            }));
+            
+            setProcessedDateQuery(dateInfo.display);
+            setIsSearching(false);
+            return dateInfo.display;
+          }
+        }
+      }
+      
+      // STEP 3: Fall back to AI if previous methods didn't work and smart search is enabled
+      if (isSmartSearch) {
+        console.log("🤖 Falling back to AI for date parsing");
+        
+        const GEMINI_API_KEY = "AIzaSyD34gajq_HMIwEc-y9ttVghZL1QRPkLxMI";
+        if (!GEMINI_API_KEY) {
+          console.error("❌ No Gemini API key available");
+          setIsSearching(false);
+          return null;
+        }
+        
+        // Create today date for context
+        const today = new Date();
+        const todayStr = today.toISOString().split('T')[0];
+        
+        // Create a very clear prompt
+        const prompt = `
+Extract the date or date range plus time (if present) from this query: "${query}"
+Current date: ${todayStr}
+
+Instructions:
+- If the query contains a specific date, return that date
+- If the query contains a time (morning, afternoon, evening, night, specific time), include it with EXACT hour ranges:
+  * Morning: 5:00am-12:00pm (05:00:00-12:00:00)
+  * Afternoon: 12:00pm-6:00pm (12:00:00-18:00:00)
+  * Evening: 6:00pm-10:00pm (18:00:00-22:00:00)
+  * Night: 10:00pm-4:00am (22:00:00-04:00:00)
+  * Midnight: 12:00am-1:00am (00:00:00-01:00:00)
+  * Noon: 12:00pm-1:00pm (12:00:00-13:00:00)
+- Return a precise date range with start/end dates
+- For single days, use the same date for both from/to
+- For overnight periods like "night", the end date should be the next day
+- For "May 1 night", understand it means May 1 at night (10pm) to May 2 at 4am
+- For "April 30 around morning", understand it means April 30 from 5am to 12pm
+- Don't make up dates if none are present
+
+Return ONLY a JSON object:
+{
+  "from": "YYYY-MM-DD",
+  "to": "YYYY-MM-DD",
+  "fromTime": "HH:MM:SS", // if time specified, otherwise null
+  "toTime": "HH:MM:SS", // if time specified, otherwise null
+  "display": "human friendly description"
+}
+
+Examples:
+- "yesterday evening" → {"from": "2023-04-01", "to": "2023-04-01", "fromTime": "18:00:00", "toTime": "22:00:00", "display": "yesterday evening"}
+- "May 1 night" → {"from": "2023-05-01", "to": "2023-05-02", "fromTime": "22:00:00", "toTime": "04:00:00", "display": "May 1 night"}
+- "april 30 around morning" → {"from": "2023-04-30", "to": "2023-04-30", "fromTime": "05:00:00", "toTime": "12:00:00", "display": "April 30 morning"}
+- "last week" → {"from": "2023-03-26", "to": "2023-04-01", "fromTime": null, "toTime": null, "display": "last week"}
+`;
+        
+        try {
+          console.log("📡 Calling Gemini API...");
+          
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [{ text: prompt }]
+              }],
+              generationConfig: {
+                temperature: 0.1,
+                topK: 40,
+                topP: 0.95,
+                maxOutputTokens: 1024,
+              }
+            })
+          });
+          
+          if (!response.ok) {
+            throw new Error(`API request failed: ${response.statusText}`);
+          }
+          
+          const data = await response.json();
+          console.log("📊 Gemini API response:", data);
+          
+          if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+            console.error("❌ Invalid API response format");
+            setIsSearching(false);
+            return null;
+          }
+          
+          // Parse the response
+          const responseText = data.candidates[0].content.parts[0].text;
+          console.log("📝 Raw API response text:", responseText);
+          
+          try {
+            // Clean the response
+            const cleanedJson = responseText.replace(/```json\n|\n```|```/g, '').trim();
+            const dateInfo = JSON.parse(cleanedJson);
+            console.log("🗓️ Parsed date info from AI:", dateInfo);
+            
+            if (dateInfo && dateInfo.from && dateInfo.to && dateInfo.display) {
+              // Store in filters
+              setParsedFilters(prevFilters => ({
+                ...(prevFilters || {}),
+                dateContext: {
+                  from: dateInfo.from,
+                  to: dateInfo.to,
+                  fromTime: dateInfo.fromTime === "null" ? undefined : dateInfo.fromTime,
+                  toTime: dateInfo.toTime === "null" ? undefined : dateInfo.toTime,
+                  hasTimeComponent: Boolean(dateInfo.fromTime && dateInfo.fromTime !== "null")
+                }
+              }));
+              
+              // Set display
+              setProcessedDateQuery(dateInfo.display);
+              
+              console.log("✅ Successfully parsed date with AI:", dateInfo.display);
+              
+              setIsSearching(false);
+              return dateInfo.display;
+            }
+          } catch (jsonError) {
+            console.error("❌ Error parsing JSON from API:", jsonError);
+            console.log("Raw response:", responseText);
+          }
+        } catch (apiError) {
+          console.error("❌ Error calling Gemini API:", apiError);
+        }
+      }
+      
+      // All parsing failed
+      console.log("⚠️ All date parsing methods failed - returning original query");
+      setIsSearching(false);
+      return query;
+    } catch (error) {
+      console.error("❌ Global error in processDateQueryWithAI:", error);
+      setIsSearching(false);
+      return null;
+    }
+  };
+
+  // Enhanced matching function with precise time handling
+  const matchesDateQuery = (timestamp: string, query: string): boolean => {
+    console.log("📅 Checking timestamp:", timestamp, "against query:", query);
+    
+    // Check for specific exact match pattern for debugging
+    if (query.toLowerCase().includes("april 30 evening")) {
+      const snippetDate = getDateFromTimestamp(timestamp);
+      const isApril30 = snippetDate.getMonth() === 3 && snippetDate.getDate() === 30;
+      const isEvening = snippetDate.getHours() >= 18 && snippetDate.getHours() <= 23;
+      console.log(`🔍 April 30 evening check: isApril30=${isApril30}, isEvening=${isEvening}, hour=${snippetDate.getHours()}`);
+    }
+    
+    // Case 1: If we have parsed filters from AI or chrono, use those for precise matching
+    if (parsedFilters && parsedFilters.dateContext && parsedFilters.dateContext.from && parsedFilters.dateContext.to) {
+      console.log("🔍 Matching using parsed filters:", parsedFilters.dateContext);
       
       try {
-        // Parse the JSON response
-        const dateData = JSON.parse(content);
-        console.log("Parsed date data:", dateData);
+        const snippetDate = getDateFromTimestamp(timestamp);
+        console.log("📌 Snippet timestamp:", timestamp);
+        console.log("📌 Snippet date object:", snippetDate.toString());
+        console.log("📌 Snippet month/day/hour:", snippetDate.getMonth(), snippetDate.getDate(), snippetDate.getHours());
         
-        if (dateData && dateData.from && dateData.to) {
-          // Set the date filter
-          setDateFilter({
-            from: dateData.from,
-            to: dateData.to
-          });
+        const fromDate = new Date(parsedFilters.dateContext.from);
+        const toDate = new Date(parsedFilters.dateContext.to);
+        
+        // Apply time if available
+        if (parsedFilters.dateContext.hasTimeComponent && parsedFilters.dateContext.fromTime) {
+          console.log("⏰ Using time components for matching");
+          const [fromHours, fromMinutes, fromSeconds] = parsedFilters.dateContext.fromTime.split(':').map(Number);
+          fromDate.setHours(fromHours, fromMinutes, fromSeconds);
+          
+          if (parsedFilters.dateContext.toTime) {
+            const [toHours, toMinutes, toSeconds] = parsedFilters.dateContext.toTime.split(':').map(Number);
+            toDate.setHours(toHours, toMinutes, toSeconds);
+          }
+          
+          console.log("⏰ Time filter range:", 
+            `${fromDate.getHours()}:${fromDate.getMinutes()} to ${toDate.getHours()}:${toDate.getMinutes()}`);
         } else {
-          console.log("No valid date range found in response");
+          // Full day range
+          fromDate.setHours(0, 0, 0, 0);
+          toDate.setHours(23, 59, 59, 999);
         }
-      } catch (parseError) {
-        console.error("Error parsing date data:", parseError);
+        
+        console.log(`⏱️ Comparing date ranges: ${fromDate.toISOString()} to ${toDate.toISOString()}`);
+        
+        let matches = false;
+        
+        // Special handling for overnight ranges like night (10pm-4am)
+        if (parsedFilters.dateContext.hasTimeComponent && 
+            parsedFilters.dateContext.fromTime && 
+            parsedFilters.dateContext.toTime) {
+          
+          const fromHour = parseInt(parsedFilters.dateContext.fromTime.split(':')[0]);
+          const toHour = parseInt(parsedFilters.dateContext.toTime.split(':')[0]);
+          
+          // If it's an overnight range (fromHour > toHour)
+          if (fromHour > toHour) {
+            console.log("🌙 Handling overnight range (night)");
+            const snippetHour = snippetDate.getHours();
+            
+            // Either the time is after the start hour on the start date
+            // OR the time is before the end hour on the end date
+            const sameStartDate = snippetDate.getFullYear() === fromDate.getFullYear() &&
+                                  snippetDate.getMonth() === fromDate.getMonth() &&
+                                  snippetDate.getDate() === fromDate.getDate();
+            
+            const sameEndDate = snippetDate.getFullYear() === toDate.getFullYear() &&
+                                snippetDate.getMonth() === toDate.getMonth() &&
+                                snippetDate.getDate() === toDate.getDate();
+            
+            if ((sameStartDate && snippetHour >= fromHour) || 
+                (sameEndDate && snippetHour <= toHour)) {
+              matches = true;
+            }
+          } else {
+            // For normal time range (e.g. evening: 6pm-11:59pm)
+            const sameDate = snippetDate.getFullYear() === fromDate.getFullYear() &&
+                            snippetDate.getMonth() === fromDate.getMonth() &&
+                            snippetDate.getDate() === fromDate.getDate();
+            
+            const withinHours = snippetDate.getHours() >= fromHour && 
+                               snippetDate.getHours() <= toHour;
+            
+            console.log(`🔍 Date/Time match check: sameDate=${sameDate}, withinHours=${withinHours}, snippetHour=${snippetDate.getHours()}, range=${fromHour}-${toHour}`);
+            
+            if (sameDate && withinHours) {
+              matches = true;
+            }
+          }
+        } else {
+          // Standard date comparison for non-time-specific queries
+          matches = snippetDate >= fromDate && snippetDate <= toDate;
+        }
+        
+        console.log(`${matches ? '✅' : '❌'} Match result:`, matches);
+        return matches;
+      } catch (error) {
+        console.error("❌ Error in date comparison:", error);
       }
-    } catch (error) {
-      console.error("Error processing date query:", error);
     }
-  };
-
-  // Handle search input change
-  const handleSearchInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setSearchInput(value);
     
-    // Reset date filter when clearing search input
-    if (!value.trim()) {
-      setDateFilter({ from: null, to: null });
-    }
+    // Case 2: Try direct string matching for common terms
+    console.log("📝 No parsed filters, using simple query matching");
+    const snippetDate = getDateFromTimestamp(timestamp);
+    const formattedDate = snippetDate.toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+      weekday: 'long',
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: true
+    }).toLowerCase();
+    
+    const lowerQuery = query.toLowerCase();
+    const matched = formattedDate.includes(lowerQuery);
+    console.log(`${matched ? '✅' : '❌'} String match result for "${lowerQuery}" in "${formattedDate}":`, matched);
+    return matched;
   };
 
-  // Process search input when it changes in smart search mode
-  useEffect(() => {
-    if (isSmartSearch && searchInput.trim()) {
-      // Check if the query appears to be date-related
-      if (isDateRelatedQuery(searchInput)) {
-        processDateQuery(searchInput);
-      } else {
-        // If not date-related, reset date filters
-        setDateFilter({ from: null, to: null });
-      }
-    }
-  }, [searchInput, isSmartSearch]);
+  // Helper function to match by app source
+  const matchesAppQuery = (snippet: Snippet, appQuery: string | undefined): boolean => {
+    if (!appQuery) return true;
+    
+    const source = snippet.source.toLowerCase();
+    const sourceApp = snippet.sourceApp?.name?.toLowerCase() || '';
+    const appQueryLower = appQuery.toLowerCase();
+    
+    // Direct matches
+    return source.includes(appQueryLower) || sourceApp.includes(appQueryLower);
+  };
+  
+  // Compute filtered snippets
+  const displayedSnippets = useMemo(() => {
+    // If we're filtering, use the filtered snippets instead of the captured ones
+    let snippetsToUse = isFiltering ? filteredSnippets : capturedSnippets;
+    
+    // Apply filters based on current view
+    let filtered = isDemoMode ? demoSnippets : snippetsToUse;
 
+    // First filter by view (favorites/all)
+    if (activeView === 'favorites') {
+      filtered = filtered.filter(snippet => snippet.isFavorite);
+    }
+
+    // Then filter by selected app if not "all"
+    if (selectedApp !== 'all') {
+      filtered = filtered.filter(snippet => {
+        return snippet.sourceApp?.name === selectedApp || 
+               (!snippet.sourceApp?.name && selectedApp === 'Unknown');
+      });
+    }
+
+    // Apply type and date filters from parsedFilters if available
+    if (parsedFilters) {
+      let intermediateFiltered = [...filtered]; // Start with the base filtered list
+
+      // Apply ALL relevant filters found in parsedFilters
+      intermediateFiltered = intermediateFiltered.filter(snippet => 
+        matchesTypeQuery(snippet, parsedFilters)
+      );
+
+      // Update the main filtered list
+      filtered = intermediateFiltered;
+    }
+
+    // Apply search query filter if not a command
+    if (searchInput && !searchInput.trim().startsWith('/')) {
+      filtered = basicTextMatch(filtered, searchInput.toLowerCase());
+    }
+
+    // Apply sorting based on user preference
+    return sortType === 'newest' 
+      ? filtered.sort(sortByNewest)
+      : filtered.sort(sortByOldest);
+  }, [
+    capturedSnippets, 
+    filteredSnippets,
+    isFiltering,
+    demoSnippets,
+    isDemoMode,
+    activeView, 
+    selectedApp, 
+    processedDateQuery, 
+    parsedFilters,
+    sortType
+  ]);
+  
   // Helper function to save snippets to localStorage
   const saveSnippetsToLocalStorage = (snippets: Snippet[]) => {
     console.log(`[Save] Attempting to save ${snippets.length} snippets...`);
@@ -684,7 +1896,6 @@ For ranges like "mid-April", use your best judgment to define an appropriate dat
       hasLoadedRef.current = true;
     }
   }, [capturedSnippets]); // Dependency array ensures this runs when capturedSnippets changes
-
   // Update copyToClipboard function
   const copyToClipboard = (text: string, snippetId: string) => {
     // Mark this copy operation as initiated by the copy button
@@ -724,7 +1935,6 @@ For ranges like "mid-April", use your best judgment to define an appropriate dat
       // Default tag
       let tags: string[] = ['clipboard'];
       let methodUsed = 'default';
-      // @ts-ignore - For future use
       let contentType = 'text';
       let confidence = 1.0;
 
@@ -734,10 +1944,19 @@ For ranges like "mid-April", use your best judgment to define an appropriate dat
         tags = ['link', 'url'];
         methodUsed = 'regex-url';
         console.log(`✅ Detected link via regex`);
+        contentType = 'link';
       } else {
         // Use Groq for comprehensive tag analysis
         try {
           console.log("🧠 Calling Groq API for content tagging...");
+          // Get API key from env or use fallback
+          const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY || "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";
+          
+          // Don't try to call the API if we don't have a key
+          if (!GROQ_API_KEY) {
+            throw new Error("No Groq API key provided");
+          }
+          
           const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
             headers: {
@@ -779,7 +1998,7 @@ Programming language identification guidelines:
 - Shell/Bash: #!/bin/bash, echo $, command patterns
 
 The most important categories to consider:
-- code (with specific language detected)
+- code (with specific language detected) 
 - link, url, web-address
 - email, contact-info
 - error-message, log, stack-trace
@@ -880,11 +2099,13 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
                 // First add code+language pair if both exist
                 if (codeTag !== -1 && languageTag !== -1) {
                   sortedTags.push(tags[codeTag], tags[languageTag]);
+                  contentType = 'code';
                 }
                 // Then add code alone if it exists
                 else if (codeTag !== -1) {
                   sortedTags.push(tags[codeTag]);
-                  
+        contentType = 'code';
+        
                   // If code exists but no language was detected, try highlight.js
                   const hljsResult = detectLanguageWithHljs(text);
                   if (hljsResult) {
@@ -897,6 +2118,9 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
                   const tagIndex = tags.findIndex(tag => tag === pTag);
                   if (tagIndex !== -1 && !sortedTags.includes(tags[tagIndex])) {
                     sortedTags.push(tags[tagIndex]);
+                    if (pTag === 'link' || pTag === 'url') {
+                      contentType = 'link';
+                    }
                   }
                 });
                 
@@ -947,16 +2171,19 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
             if (hljsResult) {
               tags = ['code', hljsResult];
               methodUsed = 'fallback-highlight.js';
+              contentType = 'code';
             } else {
               // Just generic code tag if language can't be determined
-              tags = ['code'];
+              tags = ['code', 'snippet'];
               methodUsed = 'fallback-heuristics';
+              contentType = 'code';
             }
           } else {
             // Try to detect obvious content types based on patterns
             if (/^https?:\/\/\S+/i.test(text)) {
               tags = ['link', 'url'];
               methodUsed = 'fallback-regex';
+              contentType = 'link';
             } else if (/^([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/i.test(text)) {
               tags = ['email', 'contact-info'];
               methodUsed = 'fallback-regex';
@@ -966,47 +2193,164 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
             } else if (/^\s*[\*\-\+]\s|^\d+\.\s/m.test(text) && text.split('\n').length > 2) {
               tags = ['list', 'text'];
               methodUsed = 'fallback-regex';
+            } else if (sourceApp?.name === 'Messages' || sourceApp?.name === 'iMessage' || /^[A-Z][a-z]+:.*/.test(text)) {
+              tags = ['message', 'conversation'];
+              methodUsed = 'fallback-regex';
+              contentType = 'message';
+            } else if (/\b(def|class|function|import|export|const|let|var|return|if|else|for|while)\b/.test(text)) {
+              // More code patterns that might not be caught by looksLikeCode
+              tags = ['code', 'snippet'];
+              methodUsed = 'fallback-keywords';
+              contentType = 'code';
+            } else if (/\b(todo|task|reminder|don't forget|remember to)\b/i.test(text)) {
+              tags = ['todo', 'task'];
+              methodUsed = 'fallback-keywords';
+            } else if (/\b(meeting|agenda|schedule|calendar|appointment)\b/i.test(text)) {
+              tags = ['meeting', 'schedule'];
+              methodUsed = 'fallback-keywords';
+            } else if (text.length > 300) {
+              tags = ['text', 'paragraph'];
+              methodUsed = 'fallback-length';
+            } else if (text.split('\n').length > 3) {
+              tags = ['multiline', 'text'];
+              methodUsed = 'fallback-format';
+            } else if (/\b(hello|hi|hey|what's up|howdy)\b/i.test(text.substring(0, 100))) {
+              tags = ['greeting', 'message'];
+              methodUsed = 'fallback-keywords';
+            } else if (/^[A-Z].*[.!?]$/.test(text) && text.length < 200) {
+              tags = ['sentence', 'text'];
+              methodUsed = 'fallback-format';
             } else {
               // Just use default tag for plain text
-              tags = ['text'];
+              tags = ['text', 'clipboard'];
               methodUsed = 'fallback-default';
             }
           }
         }
       }
 
-      // Ensure tags array is unique 
+      // Ensure tags array is unique and has at least 2 tags
       tags = [...new Set(tags)];
+      if (tags.length < 2) {
+        if (tags[0] === 'clipboard') {
+          tags.push('text');
+        } else {
+          tags.push('clipboard');
+        }
+      }
 
-      const newSnippet: TextSnippet = {
-        id: crypto.randomUUID(),
-        type: 'text',
+      // Create a new snippet
+      const newSnippet: Snippet = {
+        id: `snippet-${Date.now()}`,
+        type: contentType as 'text' | 'code' | 'link',
         content: text,
         source: sourceApp?.name || 'Clipboard',
-        sourceApp: sourceApp,
         timestamp: formatTimestamp(new Date()),
         tags: tags,
-      };
+        isFavorite: false,
+        sourceApp: sourceApp
+      } as Snippet;
 
-      setCapturedSnippets(prevSnippets => {
-        console.log(`[State Update] Adding new snippet with tags: #${tags.join(', #')} (detection method: ${methodUsed}, confidence: ${confidence})`);
-        console.log('[State Update] Previous snippets count:', prevSnippets.length);
-        console.log('[State Update] Previous snippets (first 3):', prevSnippets.slice(0, 3).map(s => ({ id: s.id, content: s.content.substring(0, 20) + '...' })));
-        console.log('[State Update] New snippet being added:', { id: newSnippet.id, content: newSnippet.content.substring(0, 20) + '...' });
+      // Add path for code snippets
+      if (contentType === 'code') {
+        (newSnippet as CodeSnippet).path = 'clipboard-code';
+      }
+      
+      // Add title for link snippets
+      if (contentType === 'link') {
+        // Don't set a duplicate title for link snippets
+        // The link will be shown in the content area only
+        (newSnippet as LinkSnippet).title = '';
+      }
 
-        const updatedSnippets = [newSnippet, ...prevSnippets];
-
-        console.log('[State Update] Updated snippets count:', updatedSnippets.length);
-        console.log('[State Update] Updated snippets (first 3):', updatedSnippets.slice(0, 3).map(s => ({ id: s.id, content: s.content.substring(0, 20) + '...' })));
-
-        // The useEffect watching capturedSnippets handles saving now, so this specific call might be redundant,
-        // but leaving it here for now shouldn't cause harm.
-        saveSnippetsToLocalStorage(updatedSnippets); 
+      // Detect message type content for better classification
+      if (contentType === 'text' && (
+          // Check for message-like patterns
+          (sourceApp?.name === 'Messages' || sourceApp?.name === 'iMessage') ||
+          /^[A-Z][a-z]+:.*/.test(text) || // Name followed by colon
+          /^[A-Z][a-z]+ [A-Z][a-z]+:.*/.test(text) || // First and last name followed by colon
+          text.includes(': ') || // Any name-like pattern with colon
+          // Check for conversation-like content
+          (/\b(said|says|replied|wrote|told|asked)\b/i.test(text) && text.length < 1000)
+      )) {
+        // It's likely a message/conversation
+        contentType = 'message';
+        (newSnippet as MessageSnippet).type = 'message';
+        (newSnippet as MessageSnippet).contact = sourceApp?.name || 'Unknown';
         
+        // Ensure message content gets proper tags
+        if (tags.includes('clipboard') && tags.length < 2) {
+          tags = ['message', 'conversation'];
+        } else if (tags[0] === 'clipboard') {
+          tags[0] = 'message';
+        } else if (tags.length === 1) {
+          tags.push('message');
+        }
+      }
+
+      // Ensure tags are appropriate and there are at least 2
+      if (tags.length < 2) {
+        // Add a second tag based on content type
+        if (contentType === 'code' && !tags.includes('code')) {
+          tags.push('code');
+        } else if (contentType === 'link' && !tags.includes('link')) {
+          tags.push('link');
+        } else if (contentType === 'message' && !tags.includes('message')) {
+          tags.push('message');
+        } else if (!tags.includes('text')) {
+          tags.push('text');
+        }
+      }
+
+      // If we still have only generic tags, add more specific ones
+      if (tags.length === 2 && tags.includes('clipboard') && tags.includes('text')) {
+        // Try to identify content more specifically
+        if (/\b(hello|hi|hey|greetings)\b/i.test(text.substring(0, 100))) {
+          tags = ['greeting', 'message'];
+        } else if (/\b(question|why|how|what|when|where|who)\b/i.test(text)) {
+          tags = ['question', 'text'];
+        } else if (/\b(thank|thanks|appreciate)\b/i.test(text)) {
+          tags = ['thanks', 'message'];
+        } else if (text.split('\n').length > 3) {
+          tags = ['multiline', 'text'];
+        } else if (text.length > 150) {
+          tags = ['paragraph', 'text'];
+        } else {
+          tags = ['snippet', 'text'];
+        }
+      }
+
+      console.log(`✅ Adding new snippet with tags: ${tags.join(', ')} (detection method: ${methodUsed}, confidence: ${confidence})`);
+
+      // Add the new snippet to the state - always add to capturedSnippets, not displayedSnippets
+      setCapturedSnippets(prev => {
+        // Check for duplicate content to avoid adding the same thing twice
+        const isDuplicate = prev.some(s => s.content === text);
+        if (isDuplicate) {
+          console.log("⚠️ Duplicate content detected, not adding snippet");
+          return prev;
+        }
+        
+        const updatedSnippets = [newSnippet, ...prev];
+        saveSnippetsToLocalStorage(updatedSnippets);
         return updatedSnippets;
       });
-
-      setIsDemoMode(false);
+      
+      // When in search mode, and if the new snippet matches the search criteria, 
+      // clear the search to show all snippets including the new one
+      if (searchInput.trim()) {
+        const normalizedQuery = searchInput.toLowerCase().trim();
+        const contentMatch = text.toLowerCase().includes(normalizedQuery);
+        const sourceMatch = (sourceApp?.name || 'Clipboard').toLowerCase().includes(normalizedQuery);
+        const tagMatch = tags.some(tag => tag.toLowerCase().includes(normalizedQuery));
+        
+        if (contentMatch || sourceMatch || tagMatch) {
+          // Clear search if the new snippet matches the current search
+          setSearchInput('');
+          setFilteredSnippets([]);
+          setIsFiltering(false);
+        }
+      }
     };
 
     const setupListener = async () => {
@@ -1282,62 +2626,9 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
     );
   };
 
-  // Filter snippets based on active view, selected app, search term and date filter
-  const filteredSnippets = useMemo(() => {
-    let filtered = capturedSnippets;
-    
-    // First filter by view (favorites/all)
-    if (activeView === 'favorites') {
-      filtered = filtered.filter(snippet => snippet.isFavorite);
-    }
-    
-    // Then filter by selected app
-    if (selectedApp !== 'all') {
-      filtered = filtered.filter(snippet => snippet.source === selectedApp);
-    }
-    
-    // Apply date filtering if active
-    if (dateFilter.from && dateFilter.to) {
-      filtered = filtered.filter(snippet => {
-        try {
-          // Extract date from timestamp (format: "May 2, 2025 · 2:34 PM")
-          const dateStr = snippet.timestamp.split(' · ')[0];
-          const snippetDate = new Date(dateStr);
-          
-          // Convert dateFilter strings to Date objects (we've already checked that they're not null)
-          const fromDate = new Date(dateFilter.from as string);
-          const toDate = new Date(dateFilter.to as string);
-          
-          // Add one day to toDate to include the end date (since we're comparing dates without time)
-          toDate.setDate(toDate.getDate() + 1);
-          
-          // Check if the snippet date is within the date range
-          return snippetDate >= fromDate && snippetDate <= toDate;
-        } catch (err) {
-          console.error("Error comparing dates:", err);
-          return false;
-        }
-      });
-    }
-    
-    // Real-time search: Filter by search input if present
-    // Only apply substring search if not using /date command
-    if (searchInput.trim() && (!isSmartSearch || !isDateRelatedQuery(searchInput))) {
-      const searchTerm = searchInput.toLowerCase().trim();
-      filtered = filtered.filter(snippet => {
-        // Only check the main text content (case-insensitive)
-        // This matches partial substrings anywhere in the content
-        const content = snippet.content.toLowerCase();
-        return content.includes(searchTerm);
-      });
-    }
-    
-    return filtered;
-  }, [capturedSnippets, activeView, selectedApp, searchInput, dateFilter, isSmartSearch]); // Added dateFilter and isSmartSearch dependencies
-
   // Add sorted snippets logic
   const sortedSnippets = useMemo(() => {
-    const sorted = [...filteredSnippets];
+    const sorted = [...displayedSnippets];
     sorted.sort((a, b) => {
       try {
         // First try to parse the timestamp directly
@@ -1353,17 +2644,17 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
           // Convert 12-hour format to 24-hour for proper comparison
           const timeA = new Date(`1970/01/01 ${timeStr}`).getTime();
           const timeB = new Date(`1970/01/01 ${timeStr2}`).getTime();
-          return sortOrder === 'asc' ? timeA - timeB : timeB - timeA;
+          return sortOrder === 'desc' ? timeB - timeA : timeA - timeB;
         }
         
-        return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+        return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
       } catch (error) {
         console.error('Error sorting timestamps:', error);
         return 0; // Keep original order if there's an error
       }
     });
     return sorted;
-  }, [filteredSnippets, sortOrder]);
+  }, [displayedSnippets, sortOrder]);
 
   // Renders a different card UI based on snippet type
   const renderSnippetCard = (snippet: Snippet, handleDelete: (id: string) => void) => {
@@ -1401,13 +2692,8 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
             )}
           </span>
           <span className="app-source">
-            {source} {/* This now shows the app name correctly */}
+            {source}
           </span>
-          {'path' in snippet && snippet.path && <span className="path">{snippet.path}</span>}
-          {'handle' in snippet && snippet.handle && <span className="handle">{snippet.handle}</span>}
-          {'author' in snippet && snippet.author && <span className="author">by {snippet.author}</span>}
-          {'title' in snippet && snippet.title && <span className="title">{snippet.title}</span>}
-          {'contact' in snippet && snippet.contact && <span className="contact">from {snippet.contact}</span>}
         </div>
         <div className="snippet-time">{timestamp}</div>
       </div>
@@ -1509,7 +2795,13 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
       
       case 'text':
         const hasNewlines = content.includes('\n');
-        const textContentClass = hasNewlines ? "text text-multiline" : "text";
+        const isCodeLike = looksLikeCode(content);
+        const textContentClass = hasNewlines 
+          ? isCodeLike 
+            ? "text text-multiline code-style" 
+            : "text text-multiline" 
+          : "text";
+        
         return (
           <CardLayout>
             {hasNewlines ? (
@@ -1525,9 +2817,10 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
         );
       
       case 'message':
+        const isMessageCodeLike = looksLikeCode(content);
         return (
           <CardLayout>
-            <div className={`snippet-content message`}>
+            <div className={`snippet-content message ${isMessageCodeLike ? 'code-style' : ''}`}>
               {content}
             </div>
           </CardLayout>
@@ -1546,7 +2839,7 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
         return (
           <CardLayout>
             <a href={content} className="snippet-content link" target="_blank" rel="noopener noreferrer">
-              {(snippet as LinkSnippet).title || content}
+              {content}
             </a>
           </CardLayout>
         );
@@ -1555,16 +2848,418 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
 
   console.log('[Render] capturedSnippets state before render:', capturedSnippets);
 
-  // Process /date command with Groq API
+  // Process a natural language query with Groq to extract structured filters
+  const processSmartQueryWithAI = async (query: string): Promise<void> => {
+    try {
+      console.log("🧠 Processing smart search query with Groq: ", query);
+      setIsSearching(true); // Always set searching state at the start
+      
+      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${GROQ_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "llama3-8b-8192",  // Using a smaller model for faster responses
+          messages: [
+            {
+              role: "system",
+              content: `You are an advanced search assistant for a clipboard manager app that helps users find code snippets and other content based on natural language descriptions.
 
-  // Handle search input change
-        processDateQuery(searchInput);
-      } else {
-        // If not date-related, reset date filters
-        setDateFilter({ from: null, to: null });
+Your task is to deeply understand the user's query and generate a comprehensive search strategy that can match relevant clipboard items, especially code snippets.
+
+IMPORTANT: Users often describe code by what it DOES or its OUTPUT rather than its syntax. For example, a user might search for "code that calculates fibonacci" or "function that outputs hello world" or "login form" or "sorting algorithm".
+
+When analyzing the query, think about:
+1. What is the user ACTUALLY looking for? (not just keywords)
+2. For code queries, what would the code DO? What would it OUTPUT? What PROBLEM would it solve?
+3. What important terms would appear in relevant results?
+
+Return a JSON object with these fields:
+{
+  "understanding": {
+    "userIntent": "Brief description of what you think the user is looking for",
+    "searchType": "code|text|link|image|general",
+    "codeRelated": true/false
+  },
+  "searchTerms": [
+    {
+      "term": "exact term to search for in content",
+      "importance": 1-10,
+      "alternatives": ["synonym1", "synonym2"],
+      "partialMatching": true/false
+    }
+  ],
+  "codeAnalysis": {
+    "functionality": "What the code would do",
+    "possibleSyntaxPatterns": ["pattern1", "pattern2"],
+    "expectedOutput": "What the code might output",
+    "relatedConcepts": ["concept1", "concept2"]
+  }
+}
+
+Do not include any hardcoded patterns or assumptions. Focus on deeply understanding what the user wants to find.`
+            },
+            {
+              role: "user",
+              content: query
+            }
+          ],
+          temperature: 0.1,
+          max_tokens: 800
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log("Groq AI response:", data);
+      
+      if (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) {
+        try {
+          // Trim and extract JSON
+          const responseText = data.choices[0].message.content.trim();
+          const jsonStart = responseText.indexOf('{');
+          const jsonEnd = responseText.lastIndexOf('}') + 1;
+          
+          // Extract just the JSON part if there's additional text
+          const jsonString = jsonStart >= 0 && jsonEnd > jsonStart 
+            ? responseText.substring(jsonStart, jsonEnd) 
+            : responseText;
+          
+          const aiAnalysis = JSON.parse(jsonString);
+          console.log("AI search analysis:", aiAnalysis);
+          
+          // Save the AI analysis for filtering
+          setParsedFilters(aiAnalysis);
+          
+          // For older functionality compatibility
+          setProcessedDateQuery(null);
+        } catch (parseError) {
+          console.error("Error parsing Groq response:", parseError);
+          setParsedFilters(null);
+          setProcessedDateQuery(null);
+        }
+      }
+    } catch (error) {
+      console.error("Error processing query with Groq:", error);
+      setParsedFilters(null);
+      setProcessedDateQuery(null);
+    } finally {
+      // Ensure searching state is reset after a short delay to show processing
+      setTimeout(() => {
+        setIsSearching(false);
+      }, 500);
+    }
+  };
+
+  // Fix the processCommandInput function
+  const processCommandInput = async (value: string) => {
+    console.log("Processing command:", value);
+    
+    // Reset state when changing command
+    setSearchInput(value);
+    
+    // Reset parsedFilters if we're starting with a different command
+    // This ensures previous filters don't interfere with new commands
+    if (value.startsWith('/') && !value.includes(searchInput)) {
+      setParsedFilters(null);
+    }
+    
+    if (value.startsWith('/')) {
+      // Handle date command
+      if (value.startsWith('/date')) {
+        const dateQuery = value.substring(5).trim();
+        if (dateQuery) {
+          // Reset parsedFilters to ensure no lingering filters
+          setParsedFilters(null);
+          const processedQuery = await processDateQueryWithAI(dateQuery);
+          console.log('Processed date query:', processedQuery);
+        } else {
+          setProcessedDateQuery(null);
+          setParsedFilters(null);
+        }
+        return;
+      }
+      
+      // Handle type command
+      if (value.startsWith('/type')) {
+        const typeQuery = value.substring(5).trim();
+        
+        // Always reset parsedFilters to ensure a clean state
+        setParsedFilters(null);
+        
+        if (typeQuery) {
+          console.log("Processing type query:", typeQuery);
+          
+          // Use AI to understand the type query
+          const filters = await processTypeQueryWithAI(typeQuery);
+          
+          // Make sure we update the UI even if it's the same type as before
+          if (filters) {
+            console.log("Setting parsed filters:", filters);
+            setParsedFilters(filters); // This should trigger a re-render
+          } else {
+            console.log("No filters returned from AI processing");
+            setParsedFilters(null);
+          }
+        } else {
+          // Reset filters if no query
+          setParsedFilters(null);
+        }
+        return;
+      }
+      
+      // Handle app command
+      if (value.startsWith('/app')) {
+        // Process app filter
+        const appQuery = value.substring(4).trim();
+        // Reset parsedFilters to ensure no lingering filters
+        setParsedFilters(null);
+        if (appQuery) {
+          // Filter logic will be handled by useMemo reacting to searchInput change
+          return; // Rely on useMemo hook update
+        }
+      }
+      
+      // Handle smart command (AI query understanding)
+      if (value.startsWith('/smart')) {
+        const smartQuery = value.substring(6).trim();
+        // Reset parsedFilters to ensure no lingering filters
+        setParsedFilters(null);
+        if (smartQuery) {
+          await processSmartQueryWithAI(smartQuery);
+        }
+        return;
+      }
+      
+      // Handle favorite command
+      if (value.startsWith('/fav')) {
+        // Reset parsedFilters to ensure no lingering filters
+        setParsedFilters(null);
+        // Filter logic will be handled by useMemo reacting to activeView change
+        setActiveView('favorites'); // Assuming this triggers useMemo correctly
+        return;
+      }
+      
+      // Handle custom commands that appear in dropdown
+      if (value === '/newest') {
+        // Reset parsedFilters to ensure no lingering filters
+        setParsedFilters(null);
+        setSortType('newest');
+        return;
+      }
+      
+      if (value === '/oldest') {
+        // Reset parsedFilters to ensure no lingering filters
+        setParsedFilters(null);
+        setSortType('oldest');
+        return;
+      }
+      
+      // Handle unknown command
+      console.log(`Unknown command: ${value}`);
+    } else {
+      // Reset any active filters when doing a normal search
+      setParsedFilters(null);
+      setProcessedDateQuery(null);
+      
+      // Handle normal search
+      const filtered = basicTextMatch(capturedSnippets, value.toLowerCase());
+      setCapturedSnippets(filtered);
+    }
+  };
+
+  // Helper function to get semantic matches for types
+  const getTypeSemanticMatches = (word: string): string[] => {
+    const typeSemantics: {[key: string]: string[]} = {
+      "code": ["code", "script", "function", "snippet", "programming", "algorithm", "javascript", "python", "html", "css"],
+      "url": ["url", "link", "website", "site", "webpage", "http", "https", "web", "github", "youtube"],
+      "image": ["image", "picture", "photo", "screenshot", "diagram", "chart", "graph", "png", "jpg", "jpeg"],
+      "file": ["file", "document", "pdf", "spreadsheet", "excel", "word", "powerpoint", "presentation", "doc", "csv"],
+      "text": ["text", "note", "message", "content", "paragraph", "article", "essay", "discussion", "conversation"]
+    };
+    
+    for (const [type, semantics] of Object.entries(typeSemantics)) {
+      if (semantics.includes(word) || semantics.some(term => term.includes(word) || word.includes(term))) {
+        return [type];
       }
     }
-  }, [searchInput, isSmartSearch]);
+    
+    return [];
+  };
+  
+  // Utility function for debouncing
+  function debounce<F extends (...args: any[]) => any>(func: F, waitFor: number) {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    
+    return (...args: Parameters<F>): void => {
+      if (timeout !== null) {
+        clearTimeout(timeout);
+      }
+      timeout = setTimeout(() => func(...args), waitFor);
+    };
+  }
+
+  // New function for real-time semantic search
+  const performRealTimeSearch = debounce((query: string) => {
+    console.log("Performing real-time semantic search:", query);
+    
+    if (!query || query.length < 2) {
+      setIsFiltering(false);
+      setFilteredSnippets([]);
+      return;
+    }
+    
+    setIsFiltering(true);
+    
+    // Normalize the query for comparison
+    const normalizedQuery = query.toLowerCase().trim();
+    const queryWords = normalizedQuery.split(/\s+/).filter(w => w.length > 2 && !isStopWord(w));
+    
+    // Create a map of words to their importance
+    const wordImportance: Map<string, number> = new Map();
+    
+    // Assign importance to each word based on frequency and position
+    queryWords.forEach((word, index) => {
+      // Words at the beginning are likely more important
+      const positionWeight = 1 - (index / (queryWords.length * 2));
+      // Longer words tend to carry more meaning
+      const lengthWeight = Math.min(1, word.length / 10);
+      
+      const importance = 1 + positionWeight + lengthWeight;
+      wordImportance.set(word, importance);
+    });
+    
+    // Score each snippet based on semantic relevance
+    const scoredSnippets = capturedSnippets.map((snippet: Snippet) => {
+      const content = snippet.content.toLowerCase();
+      const source = snippet.source.toLowerCase();
+      const snippetType = snippet.type.toLowerCase();
+      
+      // Different content fields have different weights
+      const weights = {
+        content: 1.0,
+        source: 0.5,
+        type: 0.4,
+        notes: 0.7
+      };
+      
+      let score = 0;
+      
+      // Check for direct substring matches first (high relevance)
+      if (content.includes(normalizedQuery)) {
+        score += normalizedQuery.length * 0.5 * weights.content;
+      }
+      
+      if (source.includes(normalizedQuery)) {
+        score += normalizedQuery.length * 0.3 * weights.source;
+      }
+      
+      // Calculate semantic score based on individual words
+      for (const [word, importance] of wordImportance.entries()) {
+        // Check content
+        if (content.includes(word)) {
+          // Calculate how central the word is in the content
+          const wordIndex = content.indexOf(word);
+          const centralityFactor = 1 - Math.min(1, Math.abs(content.length/2 - wordIndex) / (content.length/2));
+          
+          // More central matches are more relevant
+          score += importance * weights.content * (1 + centralityFactor);
+          
+          // Add extra score for whole word matches
+          if (new RegExp(`\\b${word}\\b`).test(content)) {
+            score += importance * 0.5 * weights.content;
+          }
+        }
+        
+        // Check source
+        if (source.includes(word)) {
+          score += importance * weights.source;
+          
+          // Add extra score for whole word matches
+          if (new RegExp(`\\b${word}\\b`).test(source)) {
+            score += importance * 0.5 * weights.source;
+          }
+        }
+        
+        // Check type semantics (e.g., "website" should match "url" type)
+        if (getTypeSemanticMatches(word).includes(snippetType)) {
+          score += importance * weights.type * 2; // Higher weight for semantic type matches
+        }
+        
+        // Check notes if they exist
+        if (snippet.notes && snippet.notes.length > 0) {
+          const notesText = snippet.notes.join(' ').toLowerCase();
+          if (notesText.includes(word)) {
+            score += importance * weights.notes;
+          }
+        }
+      }
+      
+      // Recency boost - newer items get a slight advantage
+      const timestamp = new Date(snippet.timestamp).getTime();
+      const now = Date.now();
+      const recencyBoost = Math.min(0.2, (now - timestamp) / (1000 * 60 * 60 * 24 * 30)); // Max 0.2 for items within a month
+      
+      score += recencyBoost;
+      
+      return { snippet, score };
+    });
+    
+    // Filter out low-scoring snippets and sort by score
+    const threshold = 0.5; // Minimum relevance score
+    const relevantSnippets = scoredSnippets
+      .filter((item: {snippet: Snippet, score: number}) => item.score > threshold)
+      .sort((a: {snippet: Snippet, score: number}, b: {snippet: Snippet, score: number}) => b.score - a.score)
+      .map((item: {snippet: Snippet, score: number}) => item.snippet);
+    
+    // If no results with high relevance, fallback to more permissive matching
+    if (relevantSnippets.length === 0) {
+      const basicMatches = basicTextMatch(capturedSnippets, normalizedQuery);
+      setFilteredSnippets(basicMatches);
+    } else {
+      setFilteredSnippets(relevantSnippets);
+    }
+  }, 150); // debounce for better performance
+
+  // Enhanced function to handle search input changes with real-time semantic analysis
+  const handleSearchInputChange = async (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    const previousValue = searchInput;
+    
+    // Set the input value first
+    setSearchInput(value);
+    
+    // If we're clearing a command input, also reset the parsedFilters
+    if (previousValue.startsWith('/') && (value === '' || !value.startsWith('/'))) {
+      console.log("Clearing command input and resetting filters");
+      setParsedFilters(null);
+      setProcessedDateQuery(null);
+      setIsFiltering(false);
+      setFilteredSnippets([]);
+    }
+    
+    // Early return if query is empty or just being initialized
+    if (!value.trim()) {
+      setIsFiltering(false);
+      setFilteredSnippets([]);
+      setParsedFilters(null);
+      return;
+    }
+
+    // If the user starts with a slash, it's a command
+    if (value.startsWith('/')) {
+      await processCommandInput(value);
+      return;
+    }
+    
+    // Real-time semantic analysis for standard queries
+    performRealTimeSearch(value);
+  };
 
   return (
     <div className="main-screen-container">
@@ -1638,7 +3333,7 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
                       <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     </svg>
                     <svg 
-                      className={`wand-icon ${isSmartSearch ? 'active' : ''}`} 
+                      className={`wand-icon ${isSmartSearch ? 'active' : ''}`}
                       xmlns="http://www.w3.org/2000/svg" 
                       width="24" 
                       height="24" 
@@ -1650,6 +3345,7 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
                       strokeLinejoin="round"
                       onClick={handleMagicSearch}
                     >
+                      <title>Toggle smart search</title>
                       <path d="M15 4V2"></path>
                       <path d="M15 16v-2"></path>
                       <path d="M8 9h2"></path>
@@ -1660,22 +3356,78 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
                       <path d="M12.2 6.2L11 5"></path>
                       <path d="M12.2 11.8L11 13"></path>
                       <path d="M5 19l7-7"></path>
-                      {isSmartSearch && <circle cx="15" cy="9" r="5" className="wand-glow" />}
                     </svg>
-                    {isSmartSearch && <div className="smart-search-badge">AI Search</div>}
-                    <input 
-                      type="text" 
-                      placeholder={isSmartSearch ? "Try natural language like 'today around 5pm' or 'notes from yesterday'" : "Search clips..."} 
-                      className={`search-input ${isSmartSearch ? 'smart-search-active' : ''}`}
+                    
+                    {isSmartSearch && (
+                      <button 
+                        className="view-commands-btn" 
+                        onClick={toggleCommandsDropdown}
+                        aria-label="View smart search commands"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="4" y1="9" x2="20" y2="9"></line>
+                          <line x1="4" y1="15" x2="20" y2="15"></line>
+                          <line x1="10" y1="3" x2="8" y2="21"></line>
+                          <line x1="16" y1="3" x2="14" y2="21"></line>
+                        </svg>
+                        <span>Commands</span>
+                      </button>
+                    )}
+                    
+                    {isCommandsDropdownOpen && (
+                      <div className="commands-dropdown">
+                        <div className="commands-header">Smart search commands</div>
+                        <div className="command-item" onClick={() => handleCommandSelect('/date')}>
+                          <span className="command">/date</span>
+                          <span className="description">Filter by when the item was copied</span>
+                        </div>
+                        <div className="command-item" onClick={() => handleCommandSelect('/type')}>
+                          <span className="command">/type</span>
+                          <span className="description">Filter by content type (text, image, URL, code)</span>
+                        </div>
+                        <div className="commands-tip">
+                          <p>Or just type naturally:</p>
+                          <p><em>"Show me code from yesterday"</em></p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    <textarea 
+                      placeholder={isSmartSearch ? "Try 'code from yesterday' or '/date last week'..." : "Search clips..."}
+                      className={`search-input ${isSmartSearch ? 'smart-search-active' : ''} ${(searchInput.startsWith('/date') || searchInput.startsWith('/type')) ? 'has-command' : ''}`}
                       value={searchInput}
                       onChange={handleSearchInputChange}
+                      title={searchInput}
+                      rows={1}
+                      onInput={(e) => {
+                        // Auto-resize textarea
+                        const target = e.target as HTMLTextAreaElement;
+                        target.style.height = 'auto';
+                        target.style.height = Math.min(target.scrollHeight, 100) + 'px';
+                      }}
                     />
+                    
+                    {isSearching && (
+                      <div className="search-loading">
+                        <svg className="spinner" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="12" y1="2" x2="12" y2="6"></line>
+                          <line x1="12" y1="18" x2="12" y2="22"></line>
+                          <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
+                          <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
+                          <line x1="2" y1="12" x2="6" y2="12"></line>
+                          <line x1="18" y1="12" x2="22" y2="12"></line>
+                          <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
+                          <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
+                        </svg>
+                        <span>AI processing...</span>
+                      </div>
+                    )}
+                    
                     {searchInput && (
                       <button 
                         className="clear-search-btn" 
                         onClick={() => {
                           setSearchInput('');
-                          setDateFilter({ from: null, to: null });
                         }}
                         aria-label="Clear search"
                       >
@@ -1685,26 +3437,8 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
                         </svg>
                       </button>
                     )}
-                    {isSmartSearch && dateFilter.from && dateFilter.to && (
-                      <div className="date-filter-badge">
-                        <span>{new Date(dateFilter.from).toLocaleDateString()} - {new Date(dateFilter.to).toLocaleDateString()}</span>
-                      </div>
-                    )}
-                    
-                    {isSmartSearch && searchInput === '' && (
-                      <div className="smart-search-examples">
-                        <div className="examples-header">Examples of natural language date searches:</div>
-                        <ul>
-                          <li onClick={() => setSearchInput('stuff I copied 2 days ago')}>stuff I copied 2 days ago</li>
-                          <li onClick={() => setSearchInput('something from Monday to Wednesday last week')}>from Monday to Wednesday last week</li>
-                          <li onClick={() => setSearchInput('items from January')}>items from January</li>
-                          <li onClick={() => setSearchInput('clips from the weekend')}>clips from the weekend</li>
-                          <li onClick={() => setSearchInput('text I saved around 5pm today')}>text I saved around 5pm today</li>
-                          <li onClick={() => setSearchInput('notes from yesterday')}>notes from yesterday</li>
-                        </ul>
-                      </div>
-                    )}
                   </div>
+                  
                   <div className="sort-control">
                     <button 
                       className={`sort-btn ${sortOrder === 'desc' ? 'active' : ''}`}
@@ -1728,59 +3462,10 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
                     </button>
                   </div>
                 </div>
-              )}
-              
-              {activeView === 'favorites' && sortedSnippets.length === 0 ? (
-                <div className="empty-favorites">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
-                  </svg>
-                  <h3>No favorites yet</h3>
-                  <p>Click the star icon on any snippet to add it to your favorites</p>
-                </div>
-              ) : capturedSnippets.length === 0 && !isDemoMode ? (
-                <div className="empty-state">
-                  <div className="icon-container">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                  </div>
-                  <h2>Your clipboard history will appear here</h2>
-                  <p>Copy some text to get started, or try out the demo to see how it works.</p>
-                  <button className="demo-btn" onClick={toggleDemoMode}>
-                    Try Demo Mode
-                  </button>
-                </div>
-              ) : sortedSnippets.length === 0 && searchInput.trim() ? (
-                <div className="empty-state">
-                  <div className="icon-container">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="11" cy="11" r="8"></circle>
-                      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                    </svg>
-                  </div>
-                  <h2>No results found</h2>
-                  <p>No clips match your search for "{searchInput}". Try a different search term.</p>
-                </div>
-              ) : (
-                <div className="snippets-container">
-                  <div className="snippets-column">
-                    {sortedSnippets.filter((_, index) => index % 2 === 0).map(snippet => (
-                      <div key={snippet.id} className="snippet-wrapper">
-                        {renderSnippetCard(snippet, handleDeleteSnippet)}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="snippets-column">
-                    {sortedSnippets.filter((_, index) => index % 2 === 1).map(snippet => (
-                      <div key={snippet.id} className="snippet-wrapper">
-                        {renderSnippetCard(snippet, handleDeleteSnippet)}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+
+                {/* Add FolderUI component after the controls container */}
+                {capturedSnippets.length > 0 && !isDemoMode && <FolderUI />}
+              </div>
             </div>
           )}
         </div>
@@ -1789,4 +3474,5 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
   );
 };
 
-export default MainScreen; 
+export default MainScreen;
+

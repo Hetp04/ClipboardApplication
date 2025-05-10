@@ -6,6 +6,7 @@ import '../styles/MainScreen.css';
 import hljs from 'highlight.js'; // Use standard highlight.js import
 import Sidebar from './Sidebar'; // Import the Sidebar component
 import * as chrono from 'chrono-node'; // Import chrono library for date parsing with named import
+import FolderManager from './FolderManager';
 
 // Define types for snippets
 interface BaseSnippet {
@@ -52,7 +53,12 @@ interface MessageSnippet extends BaseSnippet {
   contact: string;
 }
 
-type Snippet = CodeSnippet | TweetSnippet | QuoteSnippet | LinkSnippet | TextSnippet | MessageSnippet;
+interface ColorSnippet extends BaseSnippet {
+  type: 'color';
+  colorValue: string;
+}
+
+type Snippet = CodeSnippet | TweetSnippet | QuoteSnippet | LinkSnippet | TextSnippet | MessageSnippet | ColorSnippet;
 
 // Sample snippet data for demo mode
 const demoSnippets: Snippet[] = [
@@ -130,6 +136,38 @@ const formatTimestamp = (date: Date): string => {
     minute: '2-digit',
     hour12: true,
   });
+};
+
+// Regular expression for validating URLs
+const urlRegex = /^(https?:\/\/)([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/i;
+
+// Helper function to check if a string is a valid color
+const isValidColor = (text: string): boolean => {
+  // Trim whitespace
+  const trimmed = text.trim();
+  
+  // Match HEX colors (#fff, #ffffff, #ffffffff)
+  const hexRegex = /^#([A-Fa-f0-9]{3,4}|[A-Fa-f0-9]{6}|[A-Fa-f0-9]{8})$/;
+  
+  // Match RGB/RGBA colors (rgb(255, 255, 255), rgba(255, 255, 255, 0.5))
+  const rgbRegex = /^rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*(?:,\s*(?:0?\.\d+|1(?:\.0)?))?\s*\)$/;
+  
+  // Match HSL/HSLA colors (hsl(360, 100%, 50%), hsla(360, 100%, 50%, 0.5))
+  const hslRegex = /^hsla?\(\s*\d+\s*,\s*\d+%\s*,\s*\d+%\s*(?:,\s*(?:0?\.\d+|1(?:\.0)?))?\s*\)$/;
+  
+  // Match named CSS colors (red, blue, transparent, etc.)
+  const namedColorRegex = /^(aliceblue|antiquewhite|aqua|aquamarine|azure|beige|bisque|black|blanchedalmond|blue|blueviolet|brown|burlywood|cadetblue|chartreuse|chocolate|coral|cornflowerblue|cornsilk|crimson|cyan|darkblue|darkcyan|darkgoldenrod|darkgray|darkgreen|darkgrey|darkkhaki|darkmagenta|darkolivegreen|darkorange|darkorchid|darkred|darksalmon|darkseagreen|darkslateblue|darkslategray|darkslategrey|darkturquoise|darkviolet|deeppink|deepskyblue|dimgray|dimgrey|dodgerblue|firebrick|floralwhite|forestgreen|fuchsia|gainsboro|ghostwhite|gold|goldenrod|gray|green|greenyellow|grey|honeydew|hotpink|indianred|indigo|ivory|khaki|lavender|lavenderblush|lawngreen|lemonchiffon|lightblue|lightcoral|lightcyan|lightgoldenrodyellow|lightgray|lightgreen|lightgrey|lightpink|lightsalmon|lightseagreen|lightskyblue|lightslategray|lightslategrey|lightsteelblue|lightyellow|lime|limegreen|linen|magenta|maroon|mediumaquamarine|mediumblue|mediumorchid|mediumpurple|mediumseagreen|mediumslateblue|mediumspringgreen|mediumturquoise|mediumvioletred|midnightblue|mintcream|mistyrose|moccasin|navajowhite|navy|oldlace|olive|olivedrab|orange|orangered|orchid|palegoldenrod|palegreen|paleturquoise|palevioletred|papayawhip|peachpuff|peru|pink|plum|powderblue|purple|rebeccapurple|red|rosybrown|royalblue|saddlebrown|salmon|sandybrown|seagreen|seashell|sienna|silver|skyblue|slateblue|slategray|slategrey|snow|springgreen|steelblue|tan|teal|thistle|tomato|transparent|turquoise|violet|wheat|white|whitesmoke|yellow|yellowgreen)$/i;
+  
+  return hexRegex.test(trimmed) || 
+         rgbRegex.test(trimmed) || 
+         hslRegex.test(trimmed) || 
+         namedColorRegex.test(trimmed);
+};
+
+// Helper function to extract the color value for display
+const extractColorValue = (text: string): string => {
+  // Trim whitespace and return the color value
+  return text.trim();
 };
 
 // Improved heuristic check for code patterns with more robust detection
@@ -764,21 +802,10 @@ const MainScreen: React.FC = () => {
     console.log(`Deleted snippet with ID: ${id}`);
   };
 
-  // Enhanced handleMagicSearch to toggle smart search mode
-  const handleMagicSearch = async () => {
-    try {
-      console.log("🔮 Magic search activated");
-      // Toggle smart search mode
-      setIsSmartSearch(!isSmartSearch);
-      
-      // Reset processed query when turning off smart search
-      if (isSmartSearch) {
-        setProcessedDateQuery(null);
-        setParsedFilters(null);
-      }
-    } catch (error) {
-      console.error("Error during magic search:", error);
-    }
+  // Modified to only toggle commands dropdown without changing search bar
+  const handleMagicSearch = () => {
+    console.log("🔮 Magic search button clicked - toggling commands dropdown");
+    toggleCommandsDropdown();
   };
 
   // Toggle commands dropdown
@@ -822,7 +849,12 @@ const MainScreen: React.FC = () => {
         'programming': 'code',
         'text': 'text',
         'note': 'text',
-        'message': 'text'
+        'message': 'text',
+        'color': 'color',
+        'hex': 'color',
+        'rgb': 'color',
+        'rgba': 'color',
+        'hsl': 'color'
       };
 
       // Check if we can determine the type without API call
@@ -871,7 +903,7 @@ const MainScreen: React.FC = () => {
 Your task is to parse natural language queries and return a structured JSON with filters that can be applied to clipboard items.
 
 A query might contain multiple filtering criteria such as:
-1. Content type (code, image, text, url, file)
+1. Content type (code, image, text, url, file, color)
 2. Programming language specifications (JavaScript, Python, HTML, etc.)
 3. Time references (today, yesterday, last week, specific dates)
 4. Source application references (from Chrome, copied from VS Code)
@@ -881,7 +913,7 @@ Focus on understanding the semantic intent of the query, not just matching keywo
 
 IMPORTANT: Return ONLY a valid JSON object with the following structure:
 {
-  "contentType": string | null,           // The primary content type (code, image, text, url, file)
+  "contentType": string | null,           // The primary content type (code, image, text, url, file, color)
   "programmingLanguage": string | null,   // If code, what language (javascript, python, html, etc)
   "dateFilter": {                        // Time range filter
     "from": ISO date string | null,      // Start date (inclusive)
@@ -897,6 +929,7 @@ Examples:
 - For "screenshots from yesterday": Extract both the content type (image) and the date constraint
 - For "code about authentication": Extract both the content type (code) and the keywords
 - For "urls from chrome": Extract both the content type (url) and the source application
+- For "hex colors": Extract the content type (color)
 
 Always return an ISO date string (YYYY-MM-DD) for date references, using the current date for relative terms.
 Use null for any fields that aren't specified in the query.`
@@ -1043,6 +1076,11 @@ Use null for any fields that aren't specified in the query.`
       else if (type === 'text' && (snippet.type === 'code' || snippet.type === 'link')) {
         return false;
       }
+      else if (type === 'color' && snippet.type !== 'color') {
+        // For color, check if it might be a color value even if not marked as 'color' type
+        const isColorValue = isValidColor(snippet.content);
+        if (!isColorValue) return false;
+      }
     }
     
     // Check programming language for code snippets
@@ -1087,6 +1125,16 @@ Use null for any fields that aren't specified in the query.`
   // Helper function to match a specific content type
   const matchesContentType = (snippet: Snippet, contentType: string): boolean => {
     const aiType = contentType.toLowerCase();
+    
+    // Handle color type
+    if (aiType === "color") {
+      if (snippet.type.toLowerCase() === "color") {
+        return true;
+      }
+      
+      // Check if content might be a color value
+      return isValidColor(snippet.content);
+    }
     
     // Direct type matching - enforce strict type checking
     // This ensures we don't mix types in search results
@@ -1937,9 +1985,15 @@ Examples:
       let contentType = 'text';
       let confidence = 1.0;
 
+      // Check if it's a color
+      if (isValidColor(text.trim())) {
+        tags = ['color', 'design'];
+        methodUsed = 'regex-color';
+        console.log(`✅ Detected color via regex`);
+        contentType = 'color';
+      }
       // Quick URL check (keep this for immediate tagging of obvious URLs)
-      const urlRegex = /^(https?:\/\/)([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/i;
-      if (urlRegex.test(text)) {
+      else if (urlRegex.test(text)) {
         tags = ['link', 'url'];
         methodUsed = 'regex-url';
         console.log(`✅ Detected link via regex`);
@@ -2241,7 +2295,7 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
       // Create a new snippet
       const newSnippet: Snippet = {
         id: `snippet-${Date.now()}`,
-        type: contentType as 'text' | 'code' | 'link',
+        type: contentType as 'text' | 'code' | 'link' | 'color',
         content: text,
         source: sourceApp?.name || 'Clipboard',
         timestamp: formatTimestamp(new Date()),
@@ -2260,6 +2314,11 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
         // Don't set a duplicate title for link snippets
         // The link will be shown in the content area only
         (newSnippet as LinkSnippet).title = '';
+      }
+
+      // Add color value for color snippets
+      if (contentType === 'color') {
+        (newSnippet as ColorSnippet).colorValue = extractColorValue(text);
       }
 
       // Detect message type content for better classification
@@ -2529,7 +2588,7 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
   // Custom App Filter Component
   const AppFilter = () => {
     return (
-      <div className="filter-control">
+      <div className="filter-control" style={{ minWidth: '120px' }}>
         <div 
           className="app-filter-button"
           onClick={() => setIsAppFilterOpen(!isAppFilterOpen)}
@@ -2701,7 +2760,11 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
     // Notes section component uses the separate component
     const NotesSection = () => {
       if (!isEditingNotes) return null;
-      return <NotesInputSection snippet={snippet} addNote={addNote} removeNote={removeNote} />;
+      return <NotesInputSection 
+        snippet={snippet} 
+        addNote={addNote} 
+        removeNote={removeNote} 
+      />;
     };
 
     // Shared card footer with tags
@@ -2732,14 +2795,6 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
               <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
             </svg>
             {notes && notes.length > 0 && <span className="note-count">{notes.length}</span>}
-          </button>
-          <button className="ai-btn" aria-label="Generate AI summary">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7"/>
-              <path d="M7.5 13a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/>
-              <path d="M16.5 13a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/>
-              <path d="M9 18h6"/>
-            </svg>
           </button>
           <button 
             className={`copy-btn ${copiedId === id ? 'copied' : ''}`} 
@@ -2772,6 +2827,70 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
         <CardFooter />
       </div>
     );
+
+    // Special handling for color snippets
+    if (type === 'color') {
+      const colorValue = (snippet as ColorSnippet).colorValue || content;
+      // For color cards, we use a different layout that shows the color as background
+      return (
+        <div className={`${commonClasses} color-snippet`}>
+          <div 
+            className="color-preview" 
+            style={{ backgroundColor: colorValue }}
+          >
+            <span className="color-value">{colorValue}</span>
+            {isEditingNotes && <NotesSection />}
+          </div>
+          <div className="snippet-footer">
+            <div className="snippet-tags">
+              {tags.map((tag, index) => (
+                <span key={index} className="tag">#{tag}</span>
+              ))}
+            </div>
+            <div className="card-actions">
+              <button 
+                className={`favorite-btn ${snippet.isFavorite ? 'active' : ''}`}
+                aria-label={snippet.isFavorite ? "Remove from favorites" : "Add to favorites"}
+                onClick={() => toggleFavorite(id)}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill={snippet.isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                </svg>
+              </button>
+              <button 
+                className={`notes-btn ${isEditingNotes ? 'active' : ''} ${notes && notes.length > 0 ? 'has-notes' : ''}`}
+                aria-label="Toggle notes"
+                onClick={() => toggleNoteEditing(id)}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                {notes && notes.length > 0 && <span className="note-count">{notes.length}</span>}
+              </button>
+              <button 
+                className={`copy-btn ${copiedId === id ? 'copied' : ''}`} 
+                aria-label="Copy color value" 
+                onClick={() => copyToClipboard(colorValue, id)}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              </button>
+              <button className="delete-btn" aria-label="Delete color" onClick={() => handleDelete(id)}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 6h18"></path>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  <line x1="10" y1="11" x2="10" y2="17"></line>
+                  <line x1="14" y1="11" x2="14" y2="17"></line>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     switch (type) {
       case 'code':
@@ -2847,111 +2966,19 @@ Respond ONLY with a JSON object with "tags" array and "confidence" score.`
 
   console.log('[Render] capturedSnippets state before render:', capturedSnippets);
 
-  // Process a natural language query with Groq to extract structured filters
-  const processSmartQueryWithAI = async (query: string): Promise<void> => {
+  // Simplified version that doesn't use AI
+  const processSmartQueryWithAI = async (query: string) => {
     try {
-      console.log("🧠 Processing smart search query with Groq: ", query);
-      setIsSearching(true); // Always set searching state at the start
+      setIsSearching(true);
       
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${GROQ_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "llama3-8b-8192",  // Using a smaller model for faster responses
-          messages: [
-            {
-              role: "system",
-              content: `You are an advanced search assistant for a clipboard manager app that helps users find code snippets and other content based on natural language descriptions.
-
-Your task is to deeply understand the user's query and generate a comprehensive search strategy that can match relevant clipboard items, especially code snippets.
-
-IMPORTANT: Users often describe code by what it DOES or its OUTPUT rather than its syntax. For example, a user might search for "code that calculates fibonacci" or "function that outputs hello world" or "login form" or "sorting algorithm".
-
-When analyzing the query, think about:
-1. What is the user ACTUALLY looking for? (not just keywords)
-2. For code queries, what would the code DO? What would it OUTPUT? What PROBLEM would it solve?
-3. What important terms would appear in relevant results?
-
-Return a JSON object with these fields:
-{
-  "understanding": {
-    "userIntent": "Brief description of what you think the user is looking for",
-    "searchType": "code|text|link|image|general",
-    "codeRelated": true/false
-  },
-  "searchTerms": [
-    {
-      "term": "exact term to search for in content",
-      "importance": 1-10,
-      "alternatives": ["synonym1", "synonym2"],
-      "partialMatching": true/false
-    }
-  ],
-  "codeAnalysis": {
-    "functionality": "What the code would do",
-    "possibleSyntaxPatterns": ["pattern1", "pattern2"],
-    "expectedOutput": "What the code might output",
-    "relatedConcepts": ["concept1", "concept2"]
-  }
-}
-
-Do not include any hardcoded patterns or assumptions. Focus on deeply understanding what the user wants to find.`
-            },
-            {
-              role: "user",
-              content: query
-            }
-          ],
-          temperature: 0.1,
-          max_tokens: 800
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log("Groq AI response:", data);
-      
-      if (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) {
-        try {
-          // Trim and extract JSON
-          const responseText = data.choices[0].message.content.trim();
-          const jsonStart = responseText.indexOf('{');
-          const jsonEnd = responseText.lastIndexOf('}') + 1;
-          
-          // Extract just the JSON part if there's additional text
-          const jsonString = jsonStart >= 0 && jsonEnd > jsonStart 
-            ? responseText.substring(jsonStart, jsonEnd) 
-            : responseText;
-          
-          const aiAnalysis = JSON.parse(jsonString);
-          console.log("AI search analysis:", aiAnalysis);
-          
-          // Save the AI analysis for filtering
-          setParsedFilters(aiAnalysis);
-          
-          // For older functionality compatibility
-          setProcessedDateQuery(null);
-        } catch (parseError) {
-          console.error("Error parsing Groq response:", parseError);
-          setParsedFilters(null);
-          setProcessedDateQuery(null);
-        }
-      }
-    } catch (error) {
-      console.error("Error processing query with Groq:", error);
-      setParsedFilters(null);
+      // Just return the query as is without AI processing
       setProcessedDateQuery(null);
-    } finally {
-      // Ensure searching state is reset after a short delay to show processing
-      setTimeout(() => {
-        setIsSearching(false);
-      }, 500);
+      setIsSearching(false);
+      return query;
+    } catch (error) {
+      console.error("Error in smart search:", error);
+      setIsSearching(false);
+      return null;
     }
   };
 
@@ -3079,7 +3106,8 @@ Do not include any hardcoded patterns or assumptions. Focus on deeply understand
       "url": ["url", "link", "website", "site", "webpage", "http", "https", "web", "github", "youtube"],
       "image": ["image", "picture", "photo", "screenshot", "diagram", "chart", "graph", "png", "jpg", "jpeg"],
       "file": ["file", "document", "pdf", "spreadsheet", "excel", "word", "powerpoint", "presentation", "doc", "csv"],
-      "text": ["text", "note", "message", "content", "paragraph", "article", "essay", "discussion", "conversation"]
+      "text": ["text", "note", "message", "content", "paragraph", "article", "essay", "discussion", "conversation"],
+      "color": ["color", "hex", "rgb", "rgba", "hsl", "hsla", "colorcode", "hex code", "hex color", "color value", "palette"]
     };
     
     for (const [type, semantics] of Object.entries(typeSemantics)) {
@@ -3103,130 +3131,31 @@ Do not include any hardcoded patterns or assumptions. Focus on deeply understand
     };
   }
 
-  // New function for real-time semantic search
+  // Simplified real-time search function without NLP features
   const performRealTimeSearch = debounce((query: string) => {
-    console.log("Performing real-time semantic search:", query);
-    
     if (!query || query.length < 2) {
-      setIsFiltering(false);
-      setFilteredSnippets([]);
+      setFilteredSnippets(capturedSnippets);
       return;
     }
     
-    setIsFiltering(true);
+    const normalizedQuery = query.toLowerCase();
     
-    // Normalize the query for comparison
-    const normalizedQuery = query.toLowerCase().trim();
-    const queryWords = normalizedQuery.split(/\s+/).filter(w => w.length > 2 && !isStopWord(w));
-    
-    // Create a map of words to their importance
-    const wordImportance: Map<string, number> = new Map();
-    
-    // Assign importance to each word based on frequency and position
-    queryWords.forEach((word, index) => {
-      // Words at the beginning are likely more important
-      const positionWeight = 1 - (index / (queryWords.length * 2));
-      // Longer words tend to carry more meaning
-      const lengthWeight = Math.min(1, word.length / 10);
-      
-      const importance = 1 + positionWeight + lengthWeight;
-      wordImportance.set(word, importance);
-    });
-    
-    // Score each snippet based on semantic relevance
-    const scoredSnippets = capturedSnippets.map((snippet: Snippet) => {
+    const filteredResults = capturedSnippets.filter(snippet => {
       const content = snippet.content.toLowerCase();
-      const source = snippet.source.toLowerCase();
-      const snippetType = snippet.type.toLowerCase();
+      const notes = snippet.notes ? snippet.notes.join(' ').toLowerCase() : '';
+      const type = snippet.type?.toLowerCase() || '';
       
-      // Different content fields have different weights
-      const weights = {
-        content: 1.0,
-        source: 0.5,
-        type: 0.4,
-        notes: 0.7
-      };
-      
-      let score = 0;
-      
-      // Check for direct substring matches first (high relevance)
-      if (content.includes(normalizedQuery)) {
-        score += normalizedQuery.length * 0.5 * weights.content;
-      }
-      
-      if (source.includes(normalizedQuery)) {
-        score += normalizedQuery.length * 0.3 * weights.source;
-      }
-      
-      // Calculate semantic score based on individual words
-      for (const [word, importance] of wordImportance.entries()) {
-        // Check content
-        if (content.includes(word)) {
-          // Calculate how central the word is in the content
-          const wordIndex = content.indexOf(word);
-          const centralityFactor = 1 - Math.min(1, Math.abs(content.length/2 - wordIndex) / (content.length/2));
-          
-          // More central matches are more relevant
-          score += importance * weights.content * (1 + centralityFactor);
-          
-          // Add extra score for whole word matches
-          if (new RegExp(`\\b${word}\\b`).test(content)) {
-            score += importance * 0.5 * weights.content;
-          }
-        }
-        
-        // Check source
-        if (source.includes(word)) {
-          score += importance * weights.source;
-          
-          // Add extra score for whole word matches
-          if (new RegExp(`\\b${word}\\b`).test(source)) {
-            score += importance * 0.5 * weights.source;
-          }
-        }
-        
-        // Check type semantics (e.g., "website" should match "url" type)
-        if (getTypeSemanticMatches(word).includes(snippetType)) {
-          score += importance * weights.type * 2; // Higher weight for semantic type matches
-        }
-        
-        // Check notes if they exist
-        if (snippet.notes && snippet.notes.length > 0) {
-          const notesText = snippet.notes.join(' ').toLowerCase();
-          if (notesText.includes(word)) {
-            score += importance * weights.notes;
-          }
-        }
-      }
-      
-      // Recency boost - newer items get a slight advantage
-      const timestamp = new Date(snippet.timestamp).getTime();
-      const now = Date.now();
-      const recencyBoost = Math.min(0.2, (now - timestamp) / (1000 * 60 * 60 * 24 * 30)); // Max 0.2 for items within a month
-      
-      score += recencyBoost;
-      
-      return { snippet, score };
+      // Basic text matching
+      return content.includes(normalizedQuery) || 
+             notes.includes(normalizedQuery) ||
+             type.includes(normalizedQuery);
     });
     
-    // Filter out low-scoring snippets and sort by score
-    const threshold = 0.5; // Minimum relevance score
-    const relevantSnippets = scoredSnippets
-      .filter((item: {snippet: Snippet, score: number}) => item.score > threshold)
-      .sort((a: {snippet: Snippet, score: number}, b: {snippet: Snippet, score: number}) => b.score - a.score)
-      .map((item: {snippet: Snippet, score: number}) => item.snippet);
-    
-    // If no results with high relevance, fallback to more permissive matching
-    if (relevantSnippets.length === 0) {
-      const basicMatches = basicTextMatch(capturedSnippets, normalizedQuery);
-      setFilteredSnippets(basicMatches);
-    } else {
-      setFilteredSnippets(relevantSnippets);
-    }
-  }, 150); // debounce for better performance
+    setFilteredSnippets(filteredResults);
+  }, 300);
 
-  // Enhanced function to handle search input changes with real-time semantic analysis
-  const handleSearchInputChange = async (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  // Enhanced function to handle search input changes with simplified search
+  const handleSearchInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const value = e.target.value;
     const previousValue = searchInput;
     
@@ -3252,12 +3181,27 @@ Do not include any hardcoded patterns or assumptions. Focus on deeply understand
 
     // If the user starts with a slash, it's a command
     if (value.startsWith('/')) {
-      await processCommandInput(value);
+      processCommandInput(value);
       return;
     }
     
     // Real-time semantic analysis for standard queries
     performRealTimeSearch(value);
+  };
+
+  // Inside the MainScreen functional component, add a new state for selected folder:
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+
+  // Simplified matchesSemantic that just does basic text matching
+  const matchesSemantic = (snippet: Snippet, parsedFilters: any): boolean => {
+    if (!parsedFilters) return true;
+    
+    // Simple text search within content and note
+    const query = searchInput.toLowerCase();
+    const content = snippet.content.toLowerCase();
+    const notes = snippet.notes ? snippet.notes.join(' ').toLowerCase() : '';
+    
+    return content.includes(query) || notes.includes(query);
   };
 
   return (
@@ -3276,22 +3220,7 @@ Do not include any hardcoded patterns or assumptions. Focus on deeply understand
         <div className="main-screen">
           {/* back button removed */}
           
-          {/* Add Delete All Button */}
-          {capturedSnippets.length > 0 && !isDemoMode && (
-            <button 
-              className="delete-all-btn"
-              onClick={handleDeleteAll}
-              title="Delete all captured snippets"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 6h18"></path>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                <line x1="10" y1="11" x2="10" y2="17"></line>
-                <line x1="14" y1="11" x2="14" y2="17"></line>
-              </svg>
-              Clear All
-            </button>
-          )}
+          {/* Delete All Button removed */}
 
           {isDemoMode ? (
             <div className="demo-mode-container">
@@ -3332,7 +3261,7 @@ Do not include any hardcoded patterns or assumptions. Focus on deeply understand
                       <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     </svg>
                     <svg 
-                      className={`wand-icon ${isSmartSearch ? 'active' : ''}`}
+                      className="wand-icon"
                       xmlns="http://www.w3.org/2000/svg" 
                       width="24" 
                       height="24" 
@@ -3342,9 +3271,9 @@ Do not include any hardcoded patterns or assumptions. Focus on deeply understand
                       strokeWidth="2" 
                       strokeLinecap="round" 
                       strokeLinejoin="round"
-                      onClick={handleMagicSearch}
+                      onClick={toggleCommandsDropdown}
                     >
-                      <title>Toggle smart search</title>
+                      <title>View search commands</title>
                       <path d="M15 4V2"></path>
                       <path d="M15 16v-2"></path>
                       <path d="M8 9h2"></path>
@@ -3357,25 +3286,9 @@ Do not include any hardcoded patterns or assumptions. Focus on deeply understand
                       <path d="M5 19l7-7"></path>
                     </svg>
                     
-                    {isSmartSearch && (
-                      <button 
-                        className="view-commands-btn" 
-                        onClick={toggleCommandsDropdown}
-                        aria-label="View smart search commands"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <line x1="4" y1="9" x2="20" y2="9"></line>
-                          <line x1="4" y1="15" x2="20" y2="15"></line>
-                          <line x1="10" y1="3" x2="8" y2="21"></line>
-                          <line x1="16" y1="3" x2="14" y2="21"></line>
-                        </svg>
-                        <span>Commands</span>
-                      </button>
-                    )}
-                    
                     {isCommandsDropdownOpen && (
                       <div className="commands-dropdown">
-                        <div className="commands-header">Smart search commands</div>
+                        <div className="commands-header">Search commands</div>
                         <div className="command-item" onClick={() => handleCommandSelect('/date')}>
                           <span className="command">/date</span>
                           <span className="description">Filter by when the item was copied</span>
@@ -3384,16 +3297,12 @@ Do not include any hardcoded patterns or assumptions. Focus on deeply understand
                           <span className="command">/type</span>
                           <span className="description">Filter by content type (text, image, URL, code)</span>
                         </div>
-                        <div className="commands-tip">
-                          <p>Or just type naturally:</p>
-                          <p><em>"Show me code from yesterday"</em></p>
-                        </div>
                       </div>
                     )}
                     
                     <textarea 
-                      placeholder={isSmartSearch ? "Try 'code from yesterday' or '/date last week'..." : "Search clips..."}
-                      className={`search-input ${isSmartSearch ? 'smart-search-active' : ''} ${(searchInput.startsWith('/date') || searchInput.startsWith('/type')) ? 'has-command' : ''}`}
+                      placeholder="Search clips..."
+                      className="search-input"
                       value={searchInput}
                       onChange={handleSearchInputChange}
                       title={searchInput}
@@ -3437,7 +3346,7 @@ Do not include any hardcoded patterns or assumptions. Focus on deeply understand
                       </button>
                     )}
                   </div>
-                  <div className="sort-control">
+                  <div className="sort-control" style={{ minWidth: '180px', marginLeft: '5px' }}>
                     <button 
                       className={`sort-btn ${sortOrder === 'desc' ? 'active' : ''}`}
                       onClick={() => setSortOrder('desc')}
@@ -3459,6 +3368,13 @@ Do not include any hardcoded patterns or assumptions. Focus on deeply understand
                       Oldest
                     </button>
                   </div>
+                </div>
+              )}
+
+              {/* Folder Manager placed under the controls container, spanning full width */}
+              {capturedSnippets.length > 0 && !isDemoMode && (
+                <div className="folder-manager-container" style={{ width: '100%', marginTop: '10px' }}>
+                  <FolderManager onFolderSelect={setSelectedFolderId} />
                 </div>
               )}
               
@@ -3493,7 +3409,7 @@ Do not include any hardcoded patterns or assumptions. Focus on deeply understand
                     </svg>
                   </div>
                   <h2>No results found</h2>
-                  {isSmartSearch && searchInput.trim().startsWith('/date') ? (
+                  {searchInput.trim().startsWith('/date') ? (
                     <p>No clips match your date search for "{searchInput.substring(5).trim()}". Try a different date expression.</p>
                   ) : (
                     <p>No clips match your search for "{searchInput}". Try a different search term.</p>

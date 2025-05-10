@@ -1,40 +1,31 @@
-import { useState } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import HomePage from './components/HomePage';
-// import GuestPage from './components/GuestPage';
-import MainScreen from './components/MainScreen';
-import SplashScreen from './components/SplashScreen';
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import './App.css';
+import DraggableMainScreen from './components/DraggableMainScreen';
+import HomePage from './components/HomePage';
+import SplashScreen from './components/SplashScreen';
 
 function App() {
   const [showSplash, setShowSplash] = useState(true);
-  const [appReady, setAppReady] = useState(false);
 
   const handleSplashFinish = () => {
-    // Keep splash visible but indicate app is ready to load content in background
-    setAppReady(true);
-    
-    // Only hide splash after content is loaded
-    setTimeout(() => {
-      setShowSplash(false);
-    }, 500);
+    setShowSplash(false);
   };
 
   return (
-    <div className="app">
-      {/* Always render content, but initially hidden */}
-      <div className={`content-container ${appReady ? 'visible' : 'hidden'}`}>
-        <BrowserRouter>
+    <>
+      {showSplash ? (
+        <SplashScreen onFinish={handleSplashFinish} />
+      ) : (
+        <Router>
           <Routes>
             <Route path="/" element={<HomePage />} />
-            <Route path="/guest" element={<MainScreen />} />
-            <Route path="/main" element={<MainScreen />} />
+            <Route path="/main" element={<DraggableMainScreen />} />
+            <Route path="/guest" element={<DraggableMainScreen />} />
           </Routes>
-        </BrowserRouter>
-      </div>
-      
-      {showSplash && <SplashScreen onFinish={handleSplashFinish} />}
-    </div>
+        </Router>
+      )}
+    </>
   );
 }
 

@@ -199,3 +199,237 @@ button {
     background-color: #0f0f0f69;
   }
 }
+
+/* Update controls container for better spacing and alignment */
+.controls-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  background-color: transparent;
+  margin-bottom: 10px;
+  width: 100%;
+  flex-wrap: wrap;
+  gap: 0;
+}
+
+/* Adjust folder manager container for better spacing */
+.folder-manager-container {
+  display: flex;
+  flex-direction: column;
+  background-color: transparent;
+  padding: 5px 0;
+  width: 100%;
+}
+
+.folder-manager {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  margin-top: 5px;
+  padding-top: 5px;
+}
+
+.folders-section {
+  margin: 8px 0;
+  width: 100%;
+}
+
+.folders-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 2px 6px 2px;
+  margin-bottom: 6px;
+}
+
+.folders-title {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #4b5563;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.folders-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.folder-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #4b5563;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.new-folder-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid #e5e7eb;
+  color: #4f46e5;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 4px;
+  height: 24px;
+  transition: all 0.2s ease;
+}
+
+.new-folder-btn:hover {
+  background-color: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.new-folder-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Responsive styles for folder manager */
+@media (max-width: 768px) {
+  .folder-manager-container {
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+  
+  .folders-list {
+    max-height: 100px;
+  }
+}
+
+@media (max-width: 480px) {
+  .folders-section {
+    margin: 6px 0;
+  }
+  
+  .folder-item {
+    padding: 3px 8px;
+    font-size: 0.75rem;
+  }
+}
+
+/* Add missing styles for folder input and selected folder */
+.folder-input-container {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 8px;
+  width: 100%;
+}
+
+.folder-input {
+  padding: 5px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+  width: 100%;
+}
+
+.folder-input:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.3);
+}
+
+.folder-input-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.folder-create-btn, .folder-cancel-btn {
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.folder-create-btn {
+  background-color: #4f46e5;
+  color: white;
+  border: none;
+}
+
+.folder-create-btn:hover {
+  background-color: #4338ca;
+}
+
+.folder-cancel-btn {
+  background-color: transparent;
+  border: 1px solid #e5e7eb;
+  color: #6b7280;
+}
+
+.folder-cancel-btn:hover {
+  background-color: #f3f4f6;
+}
+
+.folder-name {
+  font-size: 0.8rem;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-item.selected {
+  background-color: #eff6ff;
+  border-color: #bfdbfe;
+  color: #4f46e5;
+}
+
+.folder-item.selected svg {
+  color: #4f46e5;
+}
+
+.folder-item:hover {
+  background-color: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.filter-control {
+  position: relative;
+  min-width: 120px;
+}
+
+.app-filter-button {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.app-filter-button:hover {
+  background-color: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.app-filter-button:focus {
+  outline: none;
+  border-color: #bfdbfe;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}

@@ -602,6 +602,34 @@
   border-left: 3px solid #d1d5db;
 }
 
+/* Color snippet styles */
+.color-snippet {
+  overflow: hidden;
+  border: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.color-preview {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 150px;
+}
+
+.color-value {
+  background-color: rgba(0, 0, 0, 0.5);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 14px;
+}
+
+/* Remove the color-specific action buttons styling since we're using the standard card-actions now */
+
 /* Media queries for responsive layout */
 @media (max-width: 1400px) {
   .demo-mode-container {
@@ -1058,11 +1086,16 @@
 /* Controls container */
 .controls-container {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 15px;
-  margin-bottom: 20px;
   flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 0 5px;
+}
+
+.folder-container {
+  border-left: 1px solid #e5e5e5;
+  padding-left: 10px;
 }
 
 /* Common styling for all filter controls */
@@ -1079,12 +1112,9 @@
 .search-bar {
   position: relative;
   flex: 1;
-  min-width: 300px;
-  max-width: 550px;
+  max-width: 600px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   margin: 0 5px;
-  height: 40px;
-  display: flex;
-  align-items: center;
 }
 
 .search-bar .search-icon {
@@ -2201,5 +2231,33 @@ input.search-input.has-command {
   overflow-x: auto;
   font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
   font-size: 0.85rem;
+}
+
+/* Ensure consistent width for search bar regardless of sidebar state */
+.search-bar {
+  position: relative;
+  flex: 1;
+  max-width: 600px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  margin: 0 5px;
+}
+
+/* Make sure the search bar width is maintained in both sidebar states */
+.main-content.sidebar-collapsed .search-bar,
+.main-content.sidebar-expanded .search-bar {
+  max-width: 600px;
+}
+
+/* Ensure consistent width for controls container */
+.main-content.sidebar-collapsed .controls-container,
+.main-content.sidebar-expanded .controls-container {
+  gap: 0;
+  width: 100%;
+}
+
+/* Ensure consistent width for snippets container */
+.main-content.sidebar-collapsed .snippets-container,
+.main-content.sidebar-expanded .snippets-container {
+  width: 100%;
 }
 
